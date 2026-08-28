@@ -1303,6 +1303,43 @@ def _resolve_workspace_hint(parent_agent) -> Optional[str]:
     return None
 
 
+def _prepare_task_resource_scopes(
+    task_list: List[Dict[str, Any]],
+    *,
+    fallback_root: Optional[str],
+) -> tuple[List[Any], Optional[str]]:
+    """Preflight every child resource lease before any child is constructed."""
+    from agent.delegation_resource_scope import build_resource_scope
+
+    require_explicit = is_truthy_value(
+        os.getenv("HERMES_REQUIRE_DELEGATION_RESOURCE_SCOPE"),
+        default=False,
+    )
+    scopes: List[Any] = []
+    for index, task in enumerate(task_list):
+        specification = task.get("resource_scope")
+        if require_explicit and not specification:
+            return [], f"Task {index} resource_scope is required for this delegated runtime."
+        if specification is None and not fallback_root:
+            scopes.append(None)
+            continue
+        try:
+            scopes.append(
+                build_resource_scope(
+                    specification,
+                    fallback_root=fallback_root or "",
+                )
+            )
+        except ValueError as exc:
+            if specification is None and not require_explicit:
+                # Ordinary non-project chats retain delegation, but do not gain
+                # a misleading lease when their cwd is a broad home/system root.
+                scopes.append(None)
+                continue
+            return [], f"Task {index} resource_scope preflight failed: {exc}"
+    return scopes, None
+
+
 def _strip_blocked_tools(toolsets: List[str]) -> List[str]:
     """Remove toolsets that contain only blocked tools.
 
@@ -3818,6 +3855,14 @@ def delegate_task(
             return tool_error(f"Task {i} output_schema invalid: {schema_err}")
         task_schemas.append(coerced_schema)
 
+    workspace_hint = _resolve_workspace_hint(parent_agent)
+    task_resource_scopes, resource_scope_error = _prepare_task_resource_scopes(
+        task_list,
+        fallback_root=workspace_hint,
+    )
+    if resource_scope_error:
+        return tool_error(resource_scope_error)
+
     overall_start = time.monotonic()
     results = []
 
@@ -3912,6 +3957,11 @@ def delegate_task(
                 child._delegate_output_schema = _task_schema
             except Exception:
                 logger.debug("Could not attach output schema to child %d", i)
+        _resource_scope = (
+            task_resource_scopes[i] if i < len(task_resource_scopes) else None
+        )
+        if _resource_scope is not None:
+            setattr(child, "_delegation_resource_scope", _resource_scope)
         # Tee the child's progress events into its live transcript log.
         # wrap_progress_callback preserves the inner callback contract
         # (including the _flush attribute) and never lets writer failures
@@ -4830,6 +4880,26 @@ DELEGATE_TASK_SCHEMA = {
                                 "failure). Keep it forgiving — require only "
                                 "fields you will read."
                             ),
+                        },
+                        "resource_scope": {
+                            "type": "object",
+                            "description": (
+                                "Optional fail-closed child lease. Use for repository work; "
+                                "preflight completes before any child starts."
+                            ),
+                            "properties": {
+                                "workspace_root": {"type": "string"},
+                                "repository_remote": {"type": "string"},
+                                "required_refs": {
+                                    "type": "object",
+                                    "additionalProperties": {"type": "string"},
+                                },
+                                "allowed_repositories": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                            },
+                            "required": ["workspace_root"],
                         },
                     },
                     "required": ["goal"],

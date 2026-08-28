@@ -444,6 +444,35 @@ class _ToolCancelledResult(str):
     """
 
 
+def _delegation_resource_scope_block(
+    agent,
+    function_name: str,
+    function_args: dict[str, Any],
+    effective_task_id: str,
+) -> str | None:
+    """Apply a delegated child's filesystem/forge lease before dispatch."""
+    scope = getattr(agent, "_delegation_resource_scope", None)
+    if scope is None:
+        return None
+    try:
+        from pathlib import Path
+
+        from agent.delegation_resource_scope import evaluate_tool_call
+        from tools.terminal_tool import get_session_cwd
+
+        cwd_value = get_session_cwd(effective_task_id or None)
+        cwd = Path(cwd_value) if cwd_value else scope.allowed_roots[0]
+        return evaluate_tool_call(
+            scope,
+            function_name,
+            function_args,
+            cwd=cwd,
+        )
+    except Exception as exc:
+        logger.exception("delegation resource-scope evaluation failed")
+        return f"Delegated resource-scope enforcement failed closed: {exc}"
+
+
 class _ConcurrentToolAuthorizationGate:
     """Serialize policy prompts and exclude human approval waits from batch deadlines.
 
@@ -1208,6 +1237,14 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                         )
         except Exception:
             pass
+
+        if _ts_scope_block is None:
+            _ts_scope_block = _delegation_resource_scope_block(
+                agent,
+                function_name,
+                function_args,
+                effective_task_id,
+            )
 
         parsed_calls.append(
             (tool_call, function_name, function_args, [], None, _ts_scope_block)
@@ -2074,6 +2111,14 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                         )
         except Exception:
             pass
+
+        if _ts_scope_block is None:
+            _ts_scope_block = _delegation_resource_scope_block(
+                agent,
+                function_name,
+                function_args,
+                effective_task_id,
+            )
 
         middleware_trace: list[dict[str, Any]] = []
         _execution_blocked = False
