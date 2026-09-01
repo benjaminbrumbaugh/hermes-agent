@@ -24,6 +24,7 @@ afterEach(() => {
 
 // Render the submenu inside an open menu/sub so its content (switches) mounts.
 function renderSubmenu(opts: {
+  canDisableReasoning?: boolean
   defaultEffort?: string
   effort?: string
   fastControl: FastControl
@@ -38,6 +39,7 @@ function renderSubmenu(opts: {
         <DropdownMenuSub open>
           <DropdownMenuSubTrigger>edit</DropdownMenuSubTrigger>
           <ModelEditSubmenu
+            canDisableReasoning={opts.canDisableReasoning}
             defaultEffort={opts.defaultEffort ?? 'medium'}
             effort={opts.effort ?? 'medium'}
             fastControl={opts.fastControl}
@@ -92,6 +94,33 @@ describe('ModelEditSubmenu reports edits without performing them', () => {
     fireEvent.click(screen.getByRole('switch'))
 
     expect(onSetOptions).toHaveBeenCalledWith({ effort: 'high' })
+  })
+
+  it('thinking: toggling on from an off profile default restores Hermes default effort', () => {
+    const onSetOptions = vi.fn()
+    renderSubmenu({
+      defaultEffort: 'none',
+      effort: '',
+      fastControl: { kind: 'none' },
+      onSetOptions,
+      reasoning: true
+    })
+
+    fireEvent.click(screen.getByRole('switch'))
+
+    expect(onSetOptions).toHaveBeenCalledWith({ effort: 'medium' })
+  })
+
+  it('reasoning-mandatory routes omit the Thinking toggle but retain effort choices', () => {
+    renderSubmenu({
+      canDisableReasoning: false,
+      fastControl: { kind: 'none' },
+      onSetOptions: vi.fn(),
+      reasoning: true
+    })
+
+    expect(screen.queryByRole('switch')).toBeNull()
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(7)
   })
 
   it('variant fast: swaps the model only when the row is active', () => {

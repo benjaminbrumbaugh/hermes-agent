@@ -10,7 +10,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
-import { isThinkingEnabled, REASONING_EFFORTS, resolveReasoningEffort } from '@/lib/reasoning-effort'
+import {
+  DEFAULT_REASONING_EFFORT,
+  isReasoningEffort,
+  isThinkingEnabled,
+  REASONING_EFFORTS,
+  resolveReasoningEffort
+} from '@/lib/reasoning-effort'
 
 // Hermes' real reasoning levels live in lib/reasoning-effort; `none` is owned
 // by the Thinking toggle, not the radio.
@@ -58,7 +64,7 @@ export function resolveFastControl(
   return { kind: 'none' }
 }
 
-interface ModelEditSubmenuProps {
+export interface ModelEditOptionsProps {
   /** Whether this model can turn thinking off. False on reasoning-mandatory
    *  routes, whose upstream rejects a disable — the toggle is hidden rather
    *  than offered as a control that silently does nothing. */
@@ -88,7 +94,7 @@ interface ModelEditSubmenuProps {
   reasoning: boolean
 }
 
-export function ModelEditSubmenu(props: ModelEditSubmenuProps) {
+export function ModelEditSubmenu(props: ModelEditOptionsProps) {
   // The panel mounts one of these per model row; only the hovered row's
   // submenu is ever open. Keep this wrapper hook-free and render the body as
   // a CHILD of SubContent so Radix's Presence gate leaves it unrendered until
@@ -96,12 +102,12 @@ export function ModelEditSubmenu(props: ModelEditSubmenuProps) {
   // row made opening the menu itself lag on large catalogs.
   return (
     <DropdownMenuSubContent className="w-52 p-0" sideOffset={4}>
-      <ModelEditSubmenuBody {...props} />
+      <ModelEditOptions {...props} />
     </DropdownMenuSubContent>
   )
 }
 
-function ModelEditSubmenuBody({
+export function ModelEditOptions({
   canDisableReasoning,
   defaultEffort,
   effort,
@@ -110,11 +116,14 @@ function ModelEditSubmenuBody({
   onSelectModel,
   onSetOptions,
   reasoning
-}: ModelEditSubmenuProps) {
+}: ModelEditOptionsProps) {
   const { t } = useI18n()
   const copy = t.shell.modelOptions
 
   const effortValue = resolveReasoningEffort(effort, defaultEffort)
+
+  const enabledEffort = effortValue || (isReasoningEffort(defaultEffort) ? defaultEffort : DEFAULT_REASONING_EFFORT)
+
   const thinkingOn = isThinkingEnabled(effort, defaultEffort)
   const showThinkingToggle = reasoning && canDisableReasoning !== false
 
@@ -151,7 +160,7 @@ function ModelEditSubmenuBody({
           <Switch
             checked={thinkingOn}
             className="ml-auto"
-            onCheckedChange={checked => onSetOptions({ effort: checked ? effortValue || defaultEffort : 'none' })}
+            onCheckedChange={checked => onSetOptions({ effort: checked ? enabledEffort : 'none' })}
             size="xs"
           />
         </DropdownMenuItem>

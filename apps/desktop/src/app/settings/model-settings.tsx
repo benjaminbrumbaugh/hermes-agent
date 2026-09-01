@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,7 +32,7 @@ import type {
 } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { AlertTriangle, Cpu, Loader2 } from '@/lib/icons'
-import { DEFAULT_REASONING_EFFORT, REASONING_EFFORT_VALUES } from '@/lib/reasoning-effort'
+import { DEFAULT_REASONING_EFFORT, isReasoningEffort, REASONING_EFFORT_VALUES } from '@/lib/reasoning-effort'
 import { cn } from '@/lib/utils'
 import { setMainModelAssignment } from '@/store/cron-model-impact'
 import { notifyError } from '@/store/notifications'
@@ -33,6 +40,7 @@ import { startManualLocalEndpoint, startManualOnboarding, startManualProviderOAu
 
 import { hermesConfigCacheWriter, invalidateHermesConfig, useHermesConfigRecord } from '../hooks/use-config-record'
 import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
+import { ModelEditOptions } from '../shell/model-edit-submenu'
 
 import { CONTROL_TEXT } from './constants'
 import { getNested, setNested } from './helpers'
@@ -341,6 +349,11 @@ export function ModelSettings({ onMainModelChanged, scopeProfile = null }: Model
   const auxDraftProviderModels = useMemo(
     () => providers.find(provider => provider.slug === auxDraft.provider)?.models ?? [],
     [auxDraft.provider, providers]
+  )
+
+  const auxDraftCaps = useMemo(
+    () => providers.find(provider => provider.slug === auxDraft.provider)?.capabilities?.[auxDraft.model],
+    [auxDraft.model, auxDraft.provider, providers]
   )
 
   const modelsForProvider = useCallback(
@@ -1014,25 +1027,50 @@ export function ModelSettings({ onMainModelChanged, scopeProfile = null }: Model
                         </div>
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                           <span className="text-muted-foreground">{m.reasoning}</span>
-                          <Select
-                            onValueChange={value => setAuxDraft(prev => ({ ...prev, reasoningEffort: value }))}
-                            value={auxDraft.reasoningEffort}
-                          >
-                            <SelectTrigger
-                              aria-label={`${copy.label} reasoning effort`}
-                              className={cn('min-w-32', CONTROL_TEXT)}
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__inherit__">{m.autoUseMain}</SelectItem>
-                              {REASONING_EFFORT_VALUES.map(value => (
-                                <SelectItem key={value} value={value}>
-                                  {value === 'none' ? m.reasoningOff : t.shell.modelOptions[value]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                aria-label={`${copy.label} reasoning effort`}
+                                className="min-w-32 justify-between"
+                                size="sm"
+                                variant="outline"
+                              >
+                                {auxDraft.reasoningEffort === '__inherit__'
+                                  ? m.autoUseMain
+                                  : auxDraft.reasoningEffort === 'none'
+                                    ? m.reasoningOff
+                                    : isReasoningEffort(auxDraft.reasoningEffort)
+                                      ? t.shell.modelOptions[auxDraft.reasoningEffort]
+                                      : auxDraft.reasoningEffort}
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-52 p-0">
+                              <DropdownMenuItem
+                                onSelect={() => setAuxDraft(prev => ({ ...prev, reasoningEffort: '__inherit__' }))}
+                              >
+                                {m.autoUseMain}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator className="mx-0" />
+                              <ModelEditOptions
+                                canDisableReasoning={auxDraftCaps?.can_disable_reasoning}
+                                defaultEffort={effortValue}
+                                effort={auxDraft.reasoningEffort === '__inherit__' ? '' : auxDraft.reasoningEffort}
+                                fastControl={{ kind: 'none' }}
+                                isActive={false}
+                                model={auxDraft.model}
+                                onSelectModel={() => undefined}
+                                onSetOptions={patch => {
+                                  const effort = patch.effort
+
+                                  if (effort) {
+                                    setAuxDraft(prev => ({ ...prev, reasoningEffort: effort }))
+                                  }
+                                }}
+                                provider={auxDraft.provider}
+                                reasoning={auxDraftCaps?.reasoning ?? true}
+                              />
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <Button

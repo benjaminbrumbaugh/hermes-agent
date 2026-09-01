@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -301,7 +301,7 @@ describe('ModelSettings', () => {
     expect(screen.getAllByText('auto · use main model').length).toBeGreaterThan(0)
   })
 
-  it('edits auxiliary reasoning effort below the selected model and applies it with the assignment', async () => {
+  it('reuses Hermes model options for auxiliary reasoning effort', async () => {
     getAuxiliaryModels.mockResolvedValueOnce({
       main: { provider: 'nous', model: 'hermes-4' },
       tasks: [{ task: 'vision', provider: 'nous', model: 'hermes-4', base_url: '', reasoning_effort: null }]
@@ -309,17 +309,25 @@ describe('ModelSettings', () => {
 
     await renderModelSettings()
 
-    expect(screen.queryByRole('combobox', { name: 'Vision reasoning effort' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Vision reasoning effort' })).toBeNull()
 
     fireEvent.click((await screen.findAllByRole('button', { name: 'Change' }))[0])
 
-    const reasoningSelect = await screen.findByRole('combobox', { name: 'Vision reasoning effort' })
-    expect(reasoningSelect.compareDocumentPosition(await screen.findByRole('combobox', { name: 'Vision model' }))).toBe(
+    const reasoningButton = await screen.findByRole('button', { name: 'Vision reasoning effort' })
+    expect(reasoningButton.compareDocumentPosition(await screen.findByRole('combobox', { name: 'Vision model' }))).toBe(
       Node.DOCUMENT_POSITION_PRECEDING
     )
 
-    fireEvent.click(reasoningSelect)
-    fireEvent.click(await screen.findByRole('option', { name: 'High' }))
+    fireEvent.pointerDown(reasoningButton, { button: 0, pointerType: 'mouse' })
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitemradio')
+        .map(option => option.textContent)
+    ).toEqual(['Minimal', 'Low', 'Medium', 'High', 'Extra High', 'Max', 'Ultra'])
+    expect(within(menu).queryByRole('menuitemradio', { name: 'Off' })).toBeNull()
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: 'High' }))
+    fireEvent.keyDown(menu, { key: 'Escape' })
 
     const applyButtons = await screen.findAllByRole('button', { name: 'Apply' })
     fireEvent.click(applyButtons.at(-1)!)
@@ -332,6 +340,94 @@ describe('ModelSettings', () => {
         task: 'vision',
         reasoning_effort: 'high'
       })
+    )
+  })
+
+  it('uses the shared Thinking toggle to disable auxiliary reasoning', async () => {
+    await renderModelSettings()
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Change' }))[0])
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'Vision reasoning effort' }), {
+      button: 0,
+      pointerType: 'mouse'
+    })
+    const menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByRole('switch'))
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Apply' }).at(-1)!)
+
+    await waitFor(() =>
+      expect(setModelAssignment).toHaveBeenCalledWith(expect.objectContaining({ reasoning_effort: 'none' }))
+    )
+  })
+
+  it('honors auxiliary model reasoning capabilities in the shared options', async () => {
+    getGlobalModelOptions.mockResolvedValueOnce({
+      providers: [
+        {
+          name: 'Nous',
+          slug: 'nous',
+          models: ['hermes-4'],
+          authenticated: true,
+          capabilities: { 'hermes-4': { reasoning: true, fast: false, can_disable_reasoning: false } }
+        }
+      ]
+    })
+    await renderModelSettings()
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Change' }))[0])
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'Vision reasoning effort' }), {
+      button: 0,
+      pointerType: 'mouse'
+    })
+    const menu = await screen.findByRole('menu')
+
+    expect(within(menu).queryByRole('switch')).toBeNull()
+    expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(7)
+  })
+
+  it('does not offer auxiliary effort controls for a non-reasoning model', async () => {
+    getGlobalModelOptions.mockResolvedValueOnce({
+      providers: [
+        {
+          name: 'Nous',
+          slug: 'nous',
+          models: ['hermes-4'],
+          authenticated: true,
+          capabilities: { 'hermes-4': { reasoning: false, fast: false } }
+        }
+      ]
+    })
+    await renderModelSettings()
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Change' }))[0])
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'Vision reasoning effort' }), {
+      button: 0,
+      pointerType: 'mouse'
+    })
+    const menu = await screen.findByRole('menu')
+
+    expect(within(menu).queryByRole('switch')).toBeNull()
+    expect(within(menu).queryAllByRole('menuitemradio')).toHaveLength(0)
+  })
+
+  it('retains the auxiliary inherit/reset choice alongside the shared options', async () => {
+    getAuxiliaryModels.mockResolvedValueOnce({
+      main: { provider: 'nous', model: 'hermes-4' },
+      tasks: [{ task: 'vision', provider: 'nous', model: 'hermes-4', base_url: '', reasoning_effort: 'high' }]
+    })
+    await renderModelSettings()
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Change' }))[0])
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'Vision reasoning effort' }), {
+      button: 0,
+      pointerType: 'mouse'
+    })
+    fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'auto · use main model' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Apply' }).at(-1)!)
+
+    await waitFor(() =>
+      expect(setModelAssignment).toHaveBeenCalledWith(expect.objectContaining({ reasoning_effort: null }))
     )
   })
 
