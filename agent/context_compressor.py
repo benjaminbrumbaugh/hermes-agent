@@ -315,18 +315,47 @@ def stamp_db_persisted_markers(messages: List[Dict[str, Any]]) -> None:
             msg[_DB_PERSISTED_MARKER] = True
 
 
+def _newest_checkpoint_carrier(messages: List[Dict[str, Any]], key: str) -> int:
+    """Index of the last assistant message carrying a native-compaction
+    checkpoint under *key*, or ``-1`` when the transcript has none.
+
+    This is the transcript-side mirror of
+    ``native_compaction.prune_pre_checkpoint_items``' "newest run wins" rule:
+    that function scans the converted Responses items for the last
+    ``type: "compaction"`` entry and drops everything before it, so this is
+    the only carrier whose checkpoints can still reach a request.
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        items = msg.get(key)
+        if isinstance(items, list) and any(
+            isinstance(item, dict) and item.get("type") == "compaction"
+            for item in items
+        ):
+            return i
+    return -1
+
+
 def _prune_stale_reasoning_replay(messages: List[Dict[str, Any]]) -> int:
     """Strip stale ``codex_reasoning_items`` from assistant turns older than the active one.
     Boundary is the last USER message (a turn spans several assistant rows): the Responses API replays a
     turn's bridging reasoning items together, so cutting at the last ASSISTANT would strip mid-chain.
-    ``type: "compaction"`` items are cumulative context carriers that must survive on every retained
-    message — filter items, never pop the key. In place; returns pruned message count."""
+    Only the newest ``type: "compaction"`` carrier can reach the wire; older carriers are shadowed by
+    ``native_compaction.prune_pre_checkpoint_items``. Filter items on that carrier instead of popping its
+    key. In place; returns pruned message count."""
     # Active turn = everything after the last real user message; synthetic
     # continuation rows and tool results never mark a turn boundary.
     last_user_idx = _last_index_with_role(messages, "user")
     if last_user_idx < 0:
         # No user boundary: prune nothing (fail open toward correctness).
         return 0
+
+    newest_carrier = {
+        key: _newest_checkpoint_carrier(messages, key)
+        for key in _STALE_REPLAY_PRUNE_KEYS
+    }
 
     pruned = 0
     for i in range(last_user_idx):
@@ -337,7 +366,15 @@ def _prune_stale_reasoning_replay(messages: List[Dict[str, Any]]) -> int:
             items = msg.get(key)
             if not isinstance(items, list) or not items:
                 continue
-            kept = [item for item in items if isinstance(item, dict) and item.get("type") == "compaction"]
+            kept = (
+                [
+                    item
+                    for item in items
+                    if isinstance(item, dict) and item.get("type") == "compaction"
+                ]
+                if i == newest_carrier[key]
+                else []
+            )
             if len(kept) == len(items):
                 continue  # nothing stale in this sidecar
             if kept:
