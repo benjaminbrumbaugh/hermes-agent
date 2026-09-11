@@ -473,7 +473,7 @@ def _persist_session_row_for_submit(rid, session):
 
 def _run_after_agent_ready(
     rid, sid, session, text, display_kind, hosted_terminal_callback,
-    turn_author=None, external_submission_id=None,
+    external_submission_id=None, turn_author=None,
 ):
     """Turn thread body: patient wait for a deferred build (a slow build must not eat the
     accepted in-flight message), then run."""
@@ -520,8 +520,8 @@ def _run_after_agent_ready(
         rid, sid, session, text, display_kind=display_kind,
         image_paths=[] if external_submission_id else None,
         terminal_callback=hosted_terminal_callback,
-        turn_author=turn_author,
-        external_submission_id=external_submission_id)
+        external_submission_id=external_submission_id,
+        turn_author=turn_author)
 
 
 _TRUNCATION_PARAMS = (
@@ -661,7 +661,7 @@ def _(rid, params: dict) -> dict:
             busy_transport = delivery_transport
         busy_response = _handle_busy_submit(
             rid, sid, session, text, busy_transport, queued=bool(params.get("queued")),
-            turn_author=turn_author, external_submission_id=external_submission_id)
+            external_submission_id=external_submission_id, turn_author=turn_author)
         if busy_response is not None:
             return busy_response
     raw_rebind_ids = params.get("rebind_survivor_row_ids")
@@ -701,7 +701,7 @@ def _(rid, params: dict) -> dict:
     run_thread = threading.Thread(
         target=lambda: _run_after_agent_ready(
             rid, sid, session, text, display_kind, hosted_terminal_callback,
-            turn_author, external_submission_id),
+            external_submission_id, turn_author),
         daemon=True)
     # Handle lets session.interrupt tell a live turn from a stuck `running` flag.
     session["_run_thread"] = run_thread

@@ -130,33 +130,34 @@ def _enqueue_prompt(
     text: Any,
     transport: Any,
     image_paths: list[str] | None = None,
-    turn_author: dict | None = None,
     external_submission_id: str | None = None,
+    turn_author: dict | None = None,
 ) -> None:
     """Queue a message for the next turn. Text-only arrivals share a slot and merge losslessly (like the
-    consecutive-user merge in ``repair_message_sequence``); image-bearing and authored ones stay separate
-    envelopes so attachment chronology and the sender survive. Interactive envelopes pin ``transport`` to
-    their sender; external envelopes keep it only as provenance because drain resolves the live owner."""
+    consecutive-user merge in ``repair_message_sequence``); image-bearing, external, and authored ones stay
+    separate envelopes so attachment chronology, receipt identity, and the sender survive. Interactive
+    envelopes pin ``transport`` to their sender; external envelopes keep it only as provenance because drain
+    resolves the live owner."""
     image_paths = list(image_paths or [])
     # Scrub live-turn self-duplicates first so the text merge below can't glue "{original}\n\n{later}" and re-fire the
     # original after a correction settles.
     # See #84417.
     _drop_queued_duplicates_of_inflight_user(session)
-    text_only = not external_submission_id and not image_paths and isinstance(text, str)
-    # A text-only self-copy of the live prompt would restart it on drain; an authored copy is another sender's message.
-    if text_only and not turn_author and text.strip() == _ac_inflight_original(session) != "":
+    text_only = not external_submission_id and not turn_author and not image_paths and isinstance(text, str)
+    # Never queue an ordinary text-only self-copy of the live prompt: draining it would restart it.
+    if text_only and text.strip() == _ac_inflight_original(session) != "":
         return
     queued = {
         "text": text,
         "transport": transport,
         **({"image_paths": image_paths} if image_paths else {}),
-        **({"turn_author": turn_author} if turn_author else {}),
         **({"external_submission_id": external_submission_id} if external_submission_id else {}),
+        **({"turn_author": turn_author} if turn_author else {}),
     }
     existing = session.get("queued_prompt")
-    if (existing and text_only and not turn_author and isinstance(existing.get("text"), str)
-            and not existing.get("image_paths") and not existing.get("turn_author")
-            and not existing.get("external_submission_id")
+    if (existing and text_only and isinstance(existing.get("text"), str)
+            and not existing.get("image_paths") and not existing.get("external_submission_id")
+            and not existing.get("turn_author")
             and not session.get("queued_prompts")):
         prev = existing["text"]
         existing["text"] = f"{prev}\n\n{text}" if prev and text else (prev or text)
@@ -213,8 +214,8 @@ def _sanitize_queued_entry_vs_inflight_user(entry: Any, original: str) -> dict |
     if (
         not original
         or entry.get("image_paths")
-        or entry.get("turn_author")
         or entry.get("external_submission_id")
+        or entry.get("turn_author")
         or not isinstance(text, str)
     ):
         return entry
@@ -294,8 +295,8 @@ def _handle_busy_submit(
     text: Any,
     transport: Any,
     queued: bool = False,
-    turn_author: dict | None = None,
     external_submission_id: str | None = None,
+    turn_author: dict | None = None,
 ) -> dict | None:
     """Apply ``display.busy_input_mode`` to a mid-turn prompt instead of rejecting it (rejection made clients busy-retry
     and drop sends): ``interrupt`` (default) → redirect, falling back to hard interrupt + queue; ``queue`` → queue only;
@@ -332,7 +333,7 @@ def _handle_busy_submit(
             return None
         _enqueue_prompt(
             session, text, transport, image_paths=image_paths,
-            turn_author=turn_author, external_submission_id=external_submission_id)
+            external_submission_id=external_submission_id, turn_author=turn_author)
         session["last_active"] = time.time()
     # Attachments need their own model invocation: queue without cancelling so the user gets both results in order.
     # ``steer`` must NEVER escalate to a hard interrupt: it would kill the live turn AND drop ``AIAgent._pending_steer``
@@ -436,9 +437,7 @@ def _drain_queued_prompt(rid, sid: str, session: dict) -> bool:
     try:
         if not use_compute_host:
             _run_prompt_submit(rid, sid, session, queued["text"], **kwargs, **author_kwargs)
-        elif (resp := _submit_prompt_to_compute_host(
-            rid, sid, session, queued["text"], **kwargs
-        )).get("error"):
+        elif (resp := _submit_prompt_to_compute_host(rid, sid, session, queued["text"], **kwargs)).get("error"):
             with session["history_lock"]:
                 session["running"] = False
                 _clear_inflight_turn(session)

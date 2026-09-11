@@ -817,8 +817,8 @@ def _run_prompt_submit(
     display_metadata: dict | None = None, image_paths: list[str] | None = None,
     queued_prompt_generation: int | None = None,
     terminal_callback: Callable[[dict[str, Any]], None] | None = None,
-    turn_author: dict | None = None,
-    external_submission_id: str | None = None) -> bool:
+    external_submission_id: str | None = None,
+    turn_author: dict | None = None) -> bool:
     if display_kind is None and not str(rid).startswith("__"):
         session["_wisdom_user_activity"] = time.time()
         if session.get("_wisdom_activity_tracking"):
