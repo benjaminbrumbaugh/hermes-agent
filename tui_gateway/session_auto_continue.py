@@ -10,11 +10,9 @@ from .method_ctx import bind_module
 
 # A concluded turn (success, handled error, interrupt) clears its durable marker (turn_marker.py) in _run_prompt_submit's
 # finally; only a process death leaves it behind, so a marker at session.resume proves the turn never finished AND the
-# client never saw a terminal frame. Fresh: re-submit automatically (as the messaging gateway does). Stale: clear it
-# and let the partial transcript speak.
-# If the interruption is fresh, re-submit the interrupted prompt automatically (the messaging gateway has
-# done this for restart-interrupted sessions since #27856); if it's stale, clear the marker and let the
-# recovered partial transcript speak for itself — the user can ask to continue manually.
+# client never saw a terminal frame. Fresh: re-submit automatically (as the messaging gateway has done for
+# restart-interrupted sessions since #27856). Stale: clear the marker and let the recovered partial transcript
+# speak for itself — the user can ask to continue manually.
 _AUTO_CONTINUE_FRESHNESS_MINUTES_DEFAULT = 15
 
 

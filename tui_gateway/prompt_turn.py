@@ -281,8 +281,6 @@ def _turn_outcome(result: Any) -> tuple[Any, str, str | None]:
     # parity).  An empty successful turn still renders as empty.
     if (not raw) and result.get("error") and (result.get("failed") or result.get("partial")):
         raw = f"Error: {result.get('error')}"
-    # "Operation interrupted: waiting for model response (…)" is cancellation
-    # metadata, not assistant prose (gateway/run.py and ACP suppress it too).
     # "Operation interrupted: waiting for model response (…)" is cancellation metadata, not assistant prose.
     # gateway/run.py and the ACP adapter already suppress this sentinel; without this the desktop paints it
     # as the agent's reply whenever a stop/steer lands mid-request (#7921).
