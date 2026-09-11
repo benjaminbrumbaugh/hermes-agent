@@ -2,11 +2,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import {
-  COMPOSER_HEIGHT_VAR,
-  COMPOSER_SURFACE_HEIGHT_VAR,
-  THREAD_SETTLED_CLEARANCE_VAR
-} from '@/app/chat/surface-vars'
+import { COMPOSER_HEIGHT_VAR, THREAD_SETTLED_CLEARANCE_VAR } from '@/app/chat/surface-vars'
 
 import { useComposerMetrics } from './use-composer-metrics'
 
