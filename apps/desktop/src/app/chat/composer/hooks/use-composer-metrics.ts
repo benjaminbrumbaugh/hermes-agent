@@ -288,6 +288,7 @@ export function useComposerMetrics({
       // real resize happened to fire.
       lastBucketedHeightRef.current = 0
       lastBucketedSurfaceHeightRef.current = 0
+      lastSettledClearanceRef.current = 0
     }
   }, [composerRef])
 
