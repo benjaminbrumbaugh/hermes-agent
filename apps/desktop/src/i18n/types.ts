@@ -2506,6 +2506,10 @@ export interface Translations {
       waitingForAnswer: string
       finishedUnread: string
       backgroundRunning: string
+      activityUnknown: string
+      delegatedCalls: (calls: number, max: number) => string
+      delegatedElapsed: (elapsed: string) => string
+      delegatedSubagents: (count: number) => string
       draftSession: string
       handoffOrigin: (platform: string) => string
       ownedByProfile: (profile: string) => string

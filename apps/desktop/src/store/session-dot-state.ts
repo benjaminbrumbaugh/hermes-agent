@@ -37,34 +37,100 @@ import {
   $workingSessionIds
 } from './session-states'
 import { $unreadWriteGuard, UNREAD_WRITE_GUARD_MS } from './session-unread-remote'
-import { $subagentsBySession, activeSubagentCount } from './subagents'
+import {
+  $subagentsBySession,
+  activeSubagentProgress,
+  type ActiveSubagentProgress,
+  type SubagentProgress
+} from './subagents'
 
 // Sessions parked in async delegation: the parent turn has ended (busy=false —
 // delegate_task(background=true) returns its handle the moment the children
-// are spawned) while those subagents keep working for minutes. Without this
-// input the sidebar row dropped to a plain idle dot mid-delegation, reading as
-// "done" while work was still running in child sessions. Same runtime→stored
-// bridge and fresh-chat fallback as $backgroundRunningSessionIds:
-// $subagentsBySession is keyed by runtime id, surfaces key on stored ids, and
-// lineageAliases covers whichever tip of the conversation a surface holds.
-let delegatingIds: readonly string[] = []
-export const $delegatingSessionIds = computed(
+// are spawned) while those subagents keep working for minutes. The projection
+// carries the same runtime→stored lineage bridge as the canonical dot state.
+let delegatedProgressById: Readonly<Record<string, ActiveSubagentProgress>> = {}
+
+const sameDelegatedProgress = (a: ActiveSubagentProgress | undefined, b: ActiveSubagentProgress): boolean =>
+  a?.activeCount === b.activeCount &&
+  a.apiCallCount === b.apiCallCount &&
+  a.lastTool === b.lastTool &&
+  a.maxIterations === b.maxIterations &&
+  a.startedAt === b.startedAt
+
+const activeSubagent = (item: SubagentProgress): boolean => item.status === 'queued' || item.status === 'running'
+
+/** Resolve duplicate child snapshots across runtime aliases without depending
+ * on map insertion order. Terminal lifecycle is monotonic; while active, the
+ * newest frame wins, with cumulative counters breaking equal-time snapshots. */
+const preferAliasProgress = (current: SubagentProgress, candidate: SubagentProgress): SubagentProgress => {
+  const currentActive = activeSubagent(current)
+  const candidateActive = activeSubagent(candidate)
+
+  if (currentActive !== candidateActive) {
+    return candidateActive ? current : candidate
+  }
+
+  const compare =
+    candidate.updatedAt - current.updatedAt ||
+    (candidate.apiCallCount ?? -1) - (current.apiCallCount ?? -1) ||
+    (candidate.maxIterations ?? -1) - (current.maxIterations ?? -1) ||
+    Number(candidate.hasReportedStart === true) - Number(current.hasReportedStart === true) ||
+    (current.startedAt ?? Number.POSITIVE_INFINITY) - (candidate.startedAt ?? Number.POSITIVE_INFINITY) ||
+    (candidate.lastTool ?? '').localeCompare(current.lastTool ?? '') ||
+    candidate.status.localeCompare(current.status)
+
+  return compare > 0 ? candidate : current
+}
+
+export const $delegatedProgressBySessionId = computed(
   [$subagentsBySession, $sessionStates, $sessions],
   (bySession, states, sessions) => {
-    const ids = new Set<string>()
+    const next: Record<string, ActiveSubagentProgress> = {}
+    const groups = new Map<string, { aliases: string[]; items: Map<string, SubagentProgress> }>()
 
     for (const [runtimeId, items] of Object.entries(bySession)) {
-      if (activeSubagentCount(items) === 0) {
+      const aliases = lineageAliases(states[runtimeId]?.storedSessionId ?? runtimeId, sessions)
+      const key = JSON.stringify([...aliases].sort())
+      const group = groups.get(key) ?? { aliases, items: new Map() }
+
+      for (const alias of aliases) {
+        if (!group.aliases.includes(alias)) {
+          group.aliases.push(alias)
+        }
+      }
+
+      for (const item of items) {
+        const previous = group.items.get(item.id)
+
+        group.items.set(item.id, previous ? preferAliasProgress(previous, item) : item)
+      }
+
+      groups.set(key, group)
+    }
+
+    for (const [key, group] of groups) {
+      const progress = activeSubagentProgress([...group.items.values()])
+
+      if (!progress) {
         continue
       }
 
-      for (const alias of lineageAliases(states[runtimeId]?.storedSessionId ?? runtimeId, sessions)) {
-        ids.add(alias)
+      const previous = group.aliases.map(alias => delegatedProgressById[alias]).find(Boolean)
+      const stable = previous && sameDelegatedProgress(previous, progress) ? previous : progress
+
+      for (const alias of group.aliases) {
+        next[alias] = stable
       }
     }
 
-    return (delegatingIds = stableArray(delegatingIds, [...ids]))
+    return (delegatedProgressById = stableRecord(delegatedProgressById, next))
   }
+)
+
+let delegatingIds: readonly string[] = []
+export const $delegatingSessionIds = computed(
+  $delegatedProgressBySessionId,
+  byId => (delegatingIds = stableArray(delegatingIds, Object.keys(byId)))
 )
 
 export type SessionDotState = 'background' | 'draft' | 'idle' | 'needs-input' | 'stalled' | 'unread' | 'working'

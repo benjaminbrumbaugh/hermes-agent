@@ -36,8 +36,24 @@ export interface SubagentProgress {
   filesWritten: string[]
   stream: SubagentStreamEntry[]
   summary?: string
+  /** Authoritative cumulative child calls when projected by the backend. */
+  apiCallCount?: number
+  /** Distinguishes backend started_at from the local event-receipt fallback. */
+  hasReportedStart?: boolean
   /** Active tool while running — cleared on terminal status. */
   currentTool?: string
+  /** Most recently observed tool, historical rather than necessarily active. */
+  lastTool?: string
+  /** Authoritative child call budget when projected by the backend. */
+  maxIterations?: number
+}
+
+export interface ActiveSubagentProgress {
+  activeCount: number
+  apiCallCount?: number
+  lastTool?: string
+  maxIterations?: number
+  startedAt?: number
 }
 
 export interface SubagentNode extends SubagentProgress {
@@ -56,6 +72,13 @@ export const $subagentsBySession = atom<Record<string, SubagentProgress[]>>({})
 const isStr = (v: unknown): v is string => typeof v === 'string'
 const str = (v: unknown) => (isStr(v) ? v : '')
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+
+const count = (v: unknown) => {
+  const value = num(v)
+
+  return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter(isStr) : [])
 
 const asStatus = (v: unknown, terminalEvent = false): SubagentStatus => {
@@ -94,7 +117,7 @@ const compact = (text: string, max = PREVIEW_MAX) => {
 
 const toolLabel = (name: string) => name.split('_').filter(Boolean).map(capitalize).join(' ') || name
 
-const formatTool = (name: string, preview = '') => {
+export const formatSubagentTool = (name: string, preview = '') => {
   const snippet = compact(preview, TOOL_PREVIEW_MAX)
 
   return snippet ? `${toolLabel(name)}("${snippet}")` : toolLabel(name)
@@ -151,7 +174,7 @@ function streamFromPayload(
   const text = compact(str(payload.text) || preview)
 
   for (const tail of asTail(payload.output_tail)) {
-    const line = tail.tool ? formatTool(tail.tool, tail.preview ?? '') : compact(tail.preview ?? '')
+    const line = tail.tool ? formatSubagentTool(tail.tool, tail.preview ?? '') : compact(tail.preview ?? '')
 
     if (line) {
       out.push({ at, isError: tail.isError, kind: tail.tool ? 'tool' : 'progress', text: line })
@@ -159,7 +182,7 @@ function streamFromPayload(
   }
 
   if (tool) {
-    out.push({ at, isError: !!payload.error, kind: 'tool', text: formatTool(tool, preview) })
+    out.push({ at, isError: !!payload.error, kind: 'tool', text: formatSubagentTool(tool, preview) })
   }
 
   if (eventType === 'subagent.progress' && text) {
@@ -183,14 +206,18 @@ function toProgress(payload: SubagentPayload, prev: SubagentProgress | undefined
   const at = Date.now()
   const status = asStatus(payload.status, eventType === 'subagent.complete')
   const tool = str(payload.tool_name)
+  const lastTool = str(payload.last_tool) || tool
+  const reportedStart = num(payload.started_at)
   const stream = streamFromPayload(payload, status, eventType, at).reduce(appendStream, prev?.stream ?? [])
   const filesRead = strList(payload.files_read)
   const filesWritten = strList(payload.files_written)
 
   return {
+    apiCallCount: count(payload.api_call_count) ?? count(payload.api_calls) ?? prev?.apiCallCount,
     id: prev?.id ?? idOf(payload),
     parentId: str(payload.parent_id) || prev?.parentId || null,
     goal: str(payload.goal) || prev?.goal || 'Subagent',
+    hasReportedStart: reportedStart !== undefined || prev?.hasReportedStart === true,
     sessionId: str(payload.child_session_id) || prev?.sessionId,
     delegationId: str(payload.delegation_id) || prev?.delegationId,
     model: str(payload.model) || prev?.model,
@@ -208,7 +235,9 @@ function toProgress(payload: SubagentPayload, prev: SubagentProgress | undefined
     filesWritten: filesWritten.length ? filesWritten : (prev?.filesWritten ?? []),
     stream,
     summary: str(payload.summary) || timeoutSummary(payload) || prev?.summary || undefined,
-    currentTool: TERMINAL.has(status) ? undefined : tool || prev?.currentTool
+    currentTool: TERMINAL.has(status) ? undefined : tool || prev?.currentTool,
+    lastTool: lastTool || prev?.lastTool,
+    maxIterations: count(payload.max_iterations) ?? prev?.maxIterations
   }
 }
 
@@ -237,10 +266,20 @@ export function reconcileSubagentSnapshot(sid: string, children: SubagentPayload
     projected.startedAt = (num(payload.started_at) ?? 0) * 1000 || prev?.startedAt || projected.startedAt
     projected.updatedAt = prev?.updatedAt ?? projected.startedAt
 
+    // A snapshot may have been captured before a newer live progress frame.
+    // Both counters are monotonic for a child, so never move either backward.
+    if (prev?.apiCallCount !== undefined && projected.apiCallCount !== undefined) {
+      projected.apiCallCount = Math.max(prev.apiCallCount, projected.apiCallCount)
+    }
+
+    if (prev?.maxIterations !== undefined && projected.maxIterations !== undefined) {
+      projected.maxIterations = Math.max(prev.maxIterations, projected.maxIterations)
+    }
+
     // A roster records the last tool, not a currently executing call. Seed cold
     // activity only; a repeated snapshot must not append over newer live text.
     if (!projected.stream.length && str(payload.last_tool)) {
-      projected.stream = [{ at: projected.updatedAt, kind: 'tool', text: formatTool(str(payload.last_tool)) }]
+      projected.stream = [{ at: projected.updatedAt, kind: 'tool', text: formatSubagentTool(str(payload.last_tool)) }]
     }
 
     if (index < 0) {
@@ -364,6 +403,29 @@ export function buildSubagentTree(items: readonly SubagentProgress[]): SubagentN
 
 export const activeSubagentCount = (items: readonly SubagentProgress[]) =>
   items.filter(item => item.status === 'queued' || item.status === 'running').length
+
+/** Compact, truthful projection for a parent session's status detail. Missing
+ * fields stay missing: partial mixed-version data is never presented as a
+ * complete elapsed time or call total. */
+export function activeSubagentProgress(items: readonly SubagentProgress[]): ActiveSubagentProgress | undefined {
+  const active = items.filter(item => item.status === 'queued' || item.status === 'running')
+
+  if (!active.length) {
+    return undefined
+  }
+
+  const latest = active.reduce((current, item) => (item.updatedAt > current.updatedAt ? item : current))
+  const hasCalls = active.every(item => item.apiCallCount !== undefined && item.maxIterations !== undefined)
+  const hasStarts = active.every(item => item.hasReportedStart === true)
+
+  return {
+    activeCount: active.length,
+    apiCallCount: hasCalls ? active.reduce((sum, item) => sum + (item.apiCallCount ?? 0), 0) : undefined,
+    lastTool: latest.lastTool,
+    maxIterations: hasCalls ? active.reduce((sum, item) => sum + (item.maxIterations ?? 0), 0) : undefined,
+    startedAt: hasStarts ? Math.min(...active.map(item => item.startedAt)) : undefined
+  }
+}
 
 export const failedSubagentCount = (items: readonly SubagentProgress[]) =>
   items.filter(item => item.status === 'failed' || item.status === 'interrupted').length

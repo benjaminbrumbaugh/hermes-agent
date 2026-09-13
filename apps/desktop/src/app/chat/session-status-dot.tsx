@@ -1,10 +1,13 @@
 import { useStore } from '@nanostores/react'
 
+import { Tip } from '@/components/ui/tooltip'
 import { type Translations, useI18n } from '@/i18n'
+import { formatDuration } from '@/lib/statusbar'
 import { useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { $sessionColorById, sessionColorFor } from '@/store/session-color'
-import { $sessionDotStateById, type SessionDotState } from '@/store/session-dot-state'
+import { $delegatedProgressBySessionId, $sessionDotStateById, type SessionDotState } from '@/store/session-dot-state'
+import { formatSubagentTool } from '@/store/subagents'
 import type { SessionInfo } from '@/types/hermes'
 
 // A pure lookup table: each state maps to its className, aria-label, and title.
@@ -137,7 +140,37 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
     storedSessionId ? (states[storedSessionId] ?? 'idle') : 'draft'
   )
 
+  const delegatedProgress = useStoreSelector($delegatedProgressBySessionId, byId =>
+    storedSessionId ? byId[storedSessionId] : undefined
+  )
+
   const variant = DOT_VARIANTS[dotState]
+  const showDelegatedProgress = dotState === 'background' && delegatedProgress !== undefined
+
+  const delegatedLabel = showDelegatedProgress
+    ? [
+        variant.ariaLabel?.(r),
+        r.delegatedSubagents(delegatedProgress.activeCount),
+        delegatedProgress.lastTool ? formatSubagentTool(delegatedProgress.lastTool) : r.activityUnknown,
+        delegatedProgress.startedAt !== undefined
+          ? r.delegatedElapsed(formatDuration(Date.now() - delegatedProgress.startedAt))
+          : '',
+        delegatedProgress.apiCallCount !== undefined && delegatedProgress.maxIterations !== undefined
+          ? r.delegatedCalls(delegatedProgress.apiCallCount, delegatedProgress.maxIterations)
+          : ''
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : undefined
+
+  const statusDot = (
+    <span
+      aria-label={delegatedLabel ?? variant.ariaLabel?.(r)}
+      className={variant.className}
+      role={variant.role}
+      title={delegatedLabel ? undefined : variant.title?.(r)}
+    />
+  )
 
   return (
     <span className={cn('flex items-center gap-0.5', className)}>
@@ -151,13 +184,10 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
         // keeps every row's title on one left edge, so a session finishing
         // can't shift the list under the pointer.
         <span aria-hidden="true" className={variant.className} style={color ? { backgroundColor: color } : undefined} />
+      ) : showDelegatedProgress ? (
+        <Tip label={delegatedLabel}>{statusDot}</Tip>
       ) : (
-        <span
-          aria-label={variant.ariaLabel?.(r)}
-          className={variant.className}
-          role={variant.role}
-          title={variant.title?.(r)}
-        />
+        statusDot
       )}
     </span>
   )

@@ -29,3 +29,52 @@ it('hydrates last tool activity without claiming it is active and preserves stre
   expect($subagentsBySession.get().owner).toEqual([])
   expect($subagentsBySession.get().other).toBe(other)
 })
+
+it('keeps projected activity structured and never regresses live call counters', () => {
+  reconcileSubagentSnapshot('owner', [
+    {
+      api_call_count: 2,
+      goal: 'Worker',
+      last_tool: 'read_file',
+      max_iterations: 10,
+      started_at: 1001,
+      status: 'running',
+      subagent_id: 'worker'
+    },
+    {
+      goal: 'Older backend worker',
+      status: 'running',
+      subagent_id: 'older',
+      text: 'browser_click'
+    }
+  ])
+
+  expect($subagentsBySession.get().owner[0]).toMatchObject({
+    apiCallCount: 2,
+    hasReportedStart: true,
+    lastTool: 'read_file',
+    maxIterations: 10
+  })
+  expect($subagentsBySession.get().owner[0].currentTool).toBeUndefined()
+  expect($subagentsBySession.get().owner[1]).toMatchObject({
+    apiCallCount: undefined,
+    hasReportedStart: false,
+    lastTool: undefined,
+    maxIterations: undefined
+  })
+
+  upsertSubagent('owner', { api_call_count: 5, max_iterations: 12, subagent_id: 'worker' }, false, 'subagent.progress')
+  reconcileSubagentSnapshot('owner', [
+    {
+      api_call_count: 3,
+      goal: 'Worker',
+      last_tool: 'read_file',
+      max_iterations: 10,
+      started_at: 1001,
+      status: 'running',
+      subagent_id: 'worker'
+    }
+  ])
+
+  expect($subagentsBySession.get().owner[0]).toMatchObject({ apiCallCount: 5, maxIterations: 12 })
+})

@@ -14,6 +14,7 @@ import {
   setSessions
 } from './session'
 import {
+  $delegatedProgressBySessionId,
   $delegatingSessionIds,
   $sessionDotStateById,
   $unreadSessionCount,
@@ -60,7 +61,7 @@ describe('hasLiveTurn', () => {
 })
 
 describe('$delegatingSessionIds', () => {
-  const subagent = (status: SubagentProgress['status']): SubagentProgress => ({
+  const subagent = (status: SubagentProgress['status'], extra: Partial<SubagentProgress> = {}): SubagentProgress => ({
     id: 'sub-1',
     parentId: null,
     goal: 'do a thing',
@@ -71,7 +72,8 @@ describe('$delegatingSessionIds', () => {
     updatedAt: 0,
     filesRead: [],
     filesWritten: [],
-    stream: []
+    stream: [],
+    ...extra
   })
 
   afterEach(() => {
@@ -99,6 +101,93 @@ describe('$delegatingSessionIds', () => {
     $subagentsBySession.set({ 'runtime-fresh': [subagent('queued')] })
 
     expect($delegatingSessionIds.get()).toContain('runtime-fresh')
+  })
+
+  it('merges runtime aliases and deduplicates the same child during lineage rotation', () => {
+    $sessions.set([storedRow('tip', { _lineage_ids: ['root', 'mid', 'tip'], _lineage_root_id: 'root' })])
+    publishSessionState('runtime-old', { ...createClientSessionState('mid'), busy: false })
+    publishSessionState('runtime-new', { ...createClientSessionState('tip'), busy: false })
+    $subagentsBySession.set({
+      'runtime-old': [
+        subagent('running', {
+          apiCallCount: 2,
+          hasReportedStart: true,
+          lastTool: 'read_file',
+          maxIterations: 10,
+          startedAt: 1_000,
+          updatedAt: 3_000
+        })
+      ],
+      'runtime-new': [
+        subagent('running', {
+          apiCallCount: 3,
+          hasReportedStart: true,
+          lastTool: 'browser_click',
+          maxIterations: 10,
+          startedAt: 1_000,
+          updatedAt: 3_000
+        }),
+        subagent('running', {
+          apiCallCount: 4,
+          hasReportedStart: true,
+          id: 'sub-2',
+          maxIterations: 20,
+          startedAt: 1_500,
+          updatedAt: 2_500
+        })
+      ]
+    })
+
+    expect($delegatedProgressBySessionId.get().root).toEqual({
+      activeCount: 2,
+      apiCallCount: 7,
+      lastTool: 'browser_click',
+      maxIterations: 30,
+      startedAt: 1_000
+    })
+
+    const aliases = $subagentsBySession.get()
+    $subagentsBySession.set({
+      'runtime-new': aliases['runtime-new'],
+      'runtime-old': aliases['runtime-old']
+    })
+    expect($delegatedProgressBySessionId.get().root).toEqual({
+      activeCount: 2,
+      apiCallCount: 7,
+      lastTool: 'browser_click',
+      maxIterations: 30,
+      startedAt: 1_000
+    })
+
+    $subagentsBySession.set({
+      'runtime-old': [
+        subagent('running', {
+          apiCallCount: 3,
+          hasReportedStart: true,
+          lastTool: 'browser_click',
+          maxIterations: 10,
+          startedAt: 1_000,
+          updatedAt: 3_000
+        })
+      ],
+      'runtime-new': [
+        subagent('running', {
+          apiCallCount: 3,
+          hasReportedStart: true,
+          lastTool: 'browser_click',
+          maxIterations: 10,
+          startedAt: 2_000,
+          updatedAt: 3_000
+        })
+      ]
+    })
+    expect($delegatedProgressBySessionId.get().root?.startedAt).toBe(1_000)
+
+    $subagentsBySession.set({
+      'runtime-old': [subagent('completed', { updatedAt: 1_000 })],
+      'runtime-new': [subagent('running', { updatedAt: 9_000 })]
+    })
+    expect($delegatedProgressBySessionId.get().root).toBeUndefined()
   })
 })
 

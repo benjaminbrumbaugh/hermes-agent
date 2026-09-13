@@ -11,6 +11,7 @@ import type * as ComposerStatusStore from '@/store/composer-status'
 import type * as SessionStore from '@/store/session'
 import { clearAllSessionStates, publishSessionState } from '@/store/session-states'
 import type * as SessionStatesStore from '@/store/session-states'
+import { $subagentsBySession, reconcileSubagentSnapshot, upsertSubagent } from '@/store/subagents'
 import type * as WindowsStore from '@/store/windows'
 
 import { SidebarSessionRow } from './session-row'
@@ -29,7 +30,11 @@ vi.mock('@/i18n', () => ({
         row: {
           ageMin: 'm',
           ageNow: 'now',
+          activityUnknown: 'Activity unknown',
           backgroundRunning: 'Running in background',
+          delegatedCalls: (calls: number, max: number) => `${calls}/${max} calls`,
+          delegatedElapsed: (elapsed: string) => `${elapsed} elapsed`,
+          delegatedSubagents: (count: number) => `${count} ${count === 1 ? 'subagent' : 'subagents'}`,
           finishedUnread: 'Finished',
           handoffOrigin: (platform: string) => `Started on ${platform}`,
           messageCount: (count: number) => `${count} messages`,
@@ -227,6 +232,75 @@ describe('SidebarSessionRow running arc', () => {
 
     expect(sessionTitle).toHaveBeenCalledTimes(1)
     expect(sessionTitle).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }))
+  })
+})
+
+describe('SidebarSessionRow delegated progress', () => {
+  afterEach(() => {
+    clearAllSessionStates()
+    $subagentsBySession.set({})
+    vi.useRealTimers()
+  })
+
+  it('keeps canonical dot priority and exposes truthful parked progress until completion', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-01-01T00:02:00Z'))
+    publishSessionState('runtime-1', { ...createClientSessionState('s1'), busy: true })
+    reconcileSubagentSnapshot('runtime-1', [
+      {
+        api_call_count: 2,
+        goal: 'One',
+        last_tool: 'read_file',
+        max_iterations: 10,
+        started_at: Date.now() / 1000 - 120,
+        status: 'running',
+        subagent_id: 'one'
+      },
+      {
+        api_call_count: 3,
+        goal: 'Two',
+        last_tool: 'browser_click',
+        max_iterations: 20,
+        started_at: Date.now() / 1000 - 60,
+        status: 'running',
+        subagent_id: 'two'
+      }
+    ])
+
+    renderRow(makeSession({ title: 'Delegating' }))
+    expect(screen.getByRole('status', { name: 'Running' })).toBeTruthy()
+    expect(screen.queryByText(/subagents/)).toBeNull()
+
+    act(() => {
+      publishSessionState('runtime-1', { ...createClientSessionState('s1'), busy: false })
+    })
+
+    const detail = 'Running in background · 2 subagents · Browser Click · 2:00 elapsed · 5/30 calls'
+    const dot = screen.getByRole('status', { name: detail })
+    expect(dot.getAttribute('data-slot')).toBe('tooltip-trigger')
+    expect(dot.getAttribute('tabindex')).toBeNull()
+    expect(dot.getAttribute('title')).toBeNull()
+
+    act(() => {
+      upsertSubagent('runtime-1', { status: 'completed', subagent_id: 'one' }, false, 'subagent.complete')
+      upsertSubagent('runtime-1', { status: 'completed', subagent_id: 'two' }, false, 'subagent.complete')
+    })
+
+    expect(screen.queryByRole('status', { name: detail })).toBeNull()
+    expect(screen.queryByText(/subagents/)).toBeNull()
+  })
+
+  it('falls back safely when an older backend omits optional progress fields', () => {
+    publishSessionState('runtime-1', { ...createClientSessionState('s1'), busy: false })
+    reconcileSubagentSnapshot('runtime-1', [
+      { goal: 'Old worker', status: 'running', subagent_id: 'old', text: 'read_file' }
+    ])
+
+    renderRow(makeSession({ title: 'Older backend' }))
+
+    const label = 'Running in background · 1 subagent · Activity unknown'
+    expect(screen.getByRole('status', { name: label })).toBeTruthy()
+    expect(screen.queryByRole('status', { name: /elapsed|calls/ })).toBeNull()
   })
 })
 
