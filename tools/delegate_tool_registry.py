@@ -18,6 +18,11 @@ _active_subagents_lock = threading.Lock()
 # subagent_id -> mutable record tracking the live child agent.  Stays only
 # for the lifetime of the run; _run_single_child is the owner.
 _active_subagents: Dict[str, Dict[str, Any]] = {}
+_CHECKPOINT_STEER_TEXT = (
+    "Converge on the current accepted deliverable now. Do not expand scope or start optional hardening. "
+    "Preserve coherent authorized Git work, run only the already-selected verification needed for this deliverable, "
+    "return a concise completion brief, and stop."
+)
 # subagent_id -> {goal, delegation_id, owner_agent_session_id} retained AFTER the child finishes (bounded FIFO).
 # Child-started background processes routinely outlive the child (its npm ci with notify_on_complete=true finishes
 # after the summary was delivered); their completion notifications reach the parent via the shared completion_queue
@@ -121,6 +126,50 @@ def _subagent_transport_matches(record, transport) -> bool:
     return bound is transport or (isinstance(bound, FanoutTransport) and bound.contains(transport))
 
 
+def _queue_checkpoint_if_due(subagent_id: str, agent: Any, api_call_count: Any, threshold: int) -> bool:
+    """Queue the one convergence checkpoint if this exact live child reached its configured call threshold.
+
+    Holding the registry lock through ``agent.steer`` shares the completion linearization boundary: completion either
+    closes acceptance first (nothing queues) or drains this accepted text. The observed count is recorded only after
+    steer confirms it was queued.
+    """
+    if (
+        threshold <= 0
+        or isinstance(api_call_count, bool)
+        or not isinstance(api_call_count, int)
+        or api_call_count < threshold
+    ):
+        return False
+    with _active_subagents_lock:
+        record = _active_subagents.get(subagent_id)
+        if (
+            not record
+            or record.get("agent") is not agent
+            or not record.get("accepting_steer", False)
+            or record.get("checkpoint_queued_at_calls") is not None
+        ):
+            return False
+        try:
+            queued = bool(agent.steer(_CHECKPOINT_STEER_TEXT))
+        except Exception as exc:
+            logger.debug("checkpoint steer for %s failed: %s", subagent_id, exc)
+            return False
+        if not queued:
+            return False
+        record["checkpoint_queued_at_calls"] = int(api_call_count)
+        return True
+
+
+def _get_checkpoint_queued_at_calls(subagent_id: str, agent: Any) -> Optional[int]:
+    """Mechanically observed queue point for this exact live child, if checkpoint steering succeeded."""
+    with _active_subagents_lock:
+        record = _active_subagents.get(subagent_id)
+        if record is None or record.get("agent") is not agent:
+            return None
+        value = record.get("checkpoint_queued_at_calls")
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def steer_subagent(
     subagent_id: str, text: str, *, owner_session_id: Optional[str] = None, owner_transport: Any = None,
     owner_session_record: Any = None,
@@ -168,7 +217,10 @@ def _capture_gateway_steer_authority(owner_session_id: Optional[str]) -> tuple[A
         return None, None
 
 # Registry record fields never exposed to the TUI/RPC snapshot.
-_PRIVATE_RECORD_KEYS = frozenset({"agent", "owner_session_id", "owner_transport", "owner_session_record", "accepting_steer"})
+_PRIVATE_RECORD_KEYS = frozenset({
+    "agent", "owner_session_id", "owner_transport", "owner_session_record", "accepting_steer",
+    "checkpoint_queued_at_calls",
+})
 
 def list_active_subagents() -> List[Dict[str, Any]]:
     """Copy of the running subagent tree ({subagent_id, parent_id, depth, goal, model,

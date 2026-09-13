@@ -138,6 +138,21 @@ def _get_child_timeout() -> Optional[float]:
         "delegation.child_timeout_seconds=%r is not a valid number; using default (no timeout)",
     )
 
+
+def _parse_checkpoint_calls(raw: Any) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+        raise ValueError("not an integer API-call count")
+    return max(0, int(raw))
+
+
+def _get_checkpoint_after_api_calls() -> int:
+    """One-shot convergence checkpoint threshold; 0 disables. Config-only: no environment fallback."""
+    return _knob(
+        "checkpoint_after_api_calls", None, _parse_checkpoint_calls, 0,
+        "delegation.checkpoint_after_api_calls=%r is not a valid integer; using default 0 (disabled)",
+    )
+
+
 def _get_max_spawn_depth() -> int:
     """delegation.max_spawn_depth floored at 1 (no ceiling). Depth 0 is the parent; agents at depths 0..N-1 may spawn,
     depth N is the leaf floor. Default 1 is flat. Each extra level multiplies API cost."""

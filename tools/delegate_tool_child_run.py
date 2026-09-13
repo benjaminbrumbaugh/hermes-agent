@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 from tools import file_state
 from tools.delegate_tool_progress import _quiet, _safe_progress
 from tools.delegate_tool_registry import (
-    _capture_gateway_steer_authority, _close_subagent_steering, _register_subagent, _unregister_subagent,
+    _capture_gateway_steer_authority, _close_subagent_steering, _get_checkpoint_queued_at_calls,
+    _register_subagent, _unregister_subagent,
 )
 from tools.delegate_tool_results import (
     _extract_output_tail, _looks_like_error_output, _stringify_tool_content, _summarize_tool_arguments,
@@ -213,6 +214,7 @@ class _Heartbeat:
         # Stale detection: a cycle counts as stale when (tool, iteration,
         # activity_ts) all froze; thresholds differ idle vs in-tool.
         self.last_seen = {"iter": 0, "tool": None, "ts": None, "stale": 0}
+        self.checkpoint_attempted = False
         self.handle = None
 
     def start(self) -> None:
@@ -227,7 +229,9 @@ class _Heartbeat:
 
     def tick(self):
         """Returning False stops the periodic callback."""
-        from tools.delegate_tool import _HEARTBEAT_STALE_CYCLES_IDLE, _HEARTBEAT_STALE_CYCLES_IN_TOOL
+        from tools.delegate_tool import (
+            _get_checkpoint_after_api_calls, _HEARTBEAT_STALE_CYCLES_IDLE, _HEARTBEAT_STALE_CYCLES_IN_TOOL,
+        )
         child, parent_agent, task_index, last_seen = self.child, self.parent_agent, self.task_index, self.last_seen
         touch = getattr(parent_agent, "_touch_activity", None) if parent_agent is not None else None
         if not touch:
@@ -238,6 +242,13 @@ class _Heartbeat:
             child_tool = child_summary.get("current_tool")
             child_iter = child_summary.get("api_call_count", 0)
             child_max = child_summary.get("max_iterations", 0)
+            checkpoint_after = _get_checkpoint_after_api_calls()
+            if not self.checkpoint_attempted and checkpoint_after > 0 and child_iter >= checkpoint_after:
+                self.checkpoint_attempted = True
+                from tools.delegate_tool_registry import _queue_checkpoint_if_due
+                _queue_checkpoint_if_due(
+                    str(getattr(child, "_subagent_id", "") or ""), child, child_iter, checkpoint_after,
+                )
             child_activity_ts = child_summary.get("last_activity_ts")
             # A slow model wait refreshes last_activity_ts (direct_api_call
             # heartbeat), so it never looks stale at the idle threshold.
@@ -373,11 +384,20 @@ def _lease_child_credential(child: Any) -> tuple[Any, Optional[str]]:
                 child._swap_credential(leased_entry)
     return child_pool, leased_cred_id
 
+def _record_queued_checkpoint(target: Dict[str, Any], subagent_id: Optional[str], child: Any) -> None:
+    if not subagent_id:
+        return
+    calls = _get_checkpoint_queued_at_calls(subagent_id, child)
+    if calls is not None:
+        target["checkpoint_queued_at_calls"] = calls
+
+
 def _merge_late_steer(result: Dict[str, Any], subagent_id: Optional[str], child: Any) -> None:
     """Linearization boundary for registry steering: from here the child cannot consume another steer. Closing under
     the registry lock either rejects a concurrent caller or drains every accepted exact text into the result before
     callbacks/result assembly run."""
     late = _close_subagent_steering(subagent_id, child) if subagent_id else None
+    _record_queued_checkpoint(result, subagent_id, child)
     if late:
         existing = result.get("pending_steer")
         result["pending_steer"] = f"{existing}\n{late}" if isinstance(existing, str) and existing else late
@@ -533,6 +553,10 @@ def _build_result_entry(
             entry["schema_retries"] = schema.retries
         if not schema.valid and schema.errors:
             entry["schema_errors"] = schema.errors
+
+    _checkpoint_calls = result.get("checkpoint_queued_at_calls")
+    if isinstance(_checkpoint_calls, int) and not isinstance(_checkpoint_calls, bool):
+        entry["checkpoint_queued_at_calls"] = _checkpoint_calls
 
     # A steer queued after the final assistant turn had no tool batch to land
     # in; name it so the parent sees it was MISSED rather than silently absorbed.
@@ -714,6 +738,7 @@ class _ChildRun:
             "_child_role": getattr(child, "_delegate_role", None),
             "diagnostic_path": diagnostic_path,
         }
+        _record_queued_checkpoint(_error_entry, self.subagent_id, child)
         self.finish_failed(_error_entry, _late_pending_steer, preview=f"Timed out after {duration}s" if is_timeout else str(exc))
         close_deferred = is_timeout and not future.done()
         if close_deferred:

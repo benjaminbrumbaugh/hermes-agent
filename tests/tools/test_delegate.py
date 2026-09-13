@@ -1581,6 +1581,125 @@ class TestDelegateHeartbeat(unittest.TestCase):
             f"got {len(touch_calls)} touches",
         )
 
+    def test_checkpoint_threshold_queues_exactly_once_without_resetting_stall_detection(self):
+        from tools.delegate_tool_child_run import (
+            _Heartbeat, _SchemaOutcome, _build_result_entry, _merge_late_steer,
+        )
+        from tools.delegate_tool_registry import _register_subagent, _unregister_subagent
+
+        checkpoint_text = (
+            "Converge on the current accepted deliverable now. Do not expand scope or start optional hardening. "
+            "Preserve coherent authorized Git work, run only the already-selected verification needed for this "
+            "deliverable, return a concise completion brief, and stop."
+        )
+
+        class Child:
+            _subagent_id = "checkpoint-threshold"
+
+            def __init__(self):
+                self.api_calls = 1
+                self.pending = None
+                self.steered = []
+
+            def get_activity_summary(self):
+                return {"current_tool": None, "api_call_count": self.api_calls, "max_iterations": 50}
+
+            def steer(self, text):
+                self.steered.append(text)
+                self.pending = text
+                return True
+
+            def _drain_pending_steer(self):
+                pending, self.pending = self.pending, None
+                return pending
+
+        child = Child()
+        parent = types.SimpleNamespace(_touch_activity=lambda _desc: None)
+        _register_subagent({"subagent_id": child._subagent_id, "agent": child, "status": "running"})
+        try:
+            heartbeat = _Heartbeat(child, parent, 0)
+            with (
+                patch("tools.delegate_tool._get_checkpoint_after_api_calls", return_value=2),
+                patch("tools.delegate_tool._HEARTBEAT_STALE_CYCLES_IDLE", 2),
+            ):
+                self.assertIsNone(heartbeat.tick())
+                child.api_calls = 2
+                self.assertIsNone(heartbeat.tick())
+                self.assertIsNone(heartbeat.tick())
+                self.assertFalse(heartbeat.tick())
+
+            self.assertEqual(child.steered, [checkpoint_text])
+            result = {"final_response": "done", "completed": True, "api_calls": 2, "messages": []}
+            _merge_late_steer(result, child._subagent_id, child)
+            self.assertEqual(result["checkpoint_queued_at_calls"], 2)
+            self.assertEqual(result["pending_steer"], checkpoint_text)
+            entry = _build_result_entry(child, result, 0, 1.0, _SchemaOutcome(None, None, [], 0))
+            self.assertEqual(entry["checkpoint_queued_at_calls"], 2)
+        finally:
+            _unregister_subagent(child._subagent_id, agent=child)
+
+    def test_checkpoint_disabled_by_default(self):
+        from tools.delegate_tool_child_run import _Heartbeat
+        from tools.delegate_tool_registry import _register_subagent, _unregister_subagent
+
+        child = MagicMock()
+        child._subagent_id = "checkpoint-disabled"
+        child.get_activity_summary.return_value = {
+            "current_tool": None, "api_call_count": 100, "max_iterations": 250,
+        }
+        _register_subagent({"subagent_id": child._subagent_id, "agent": child, "status": "running"})
+        try:
+            with patch("tools.delegate_tool._load_config", return_value={}):
+                _Heartbeat(child, types.SimpleNamespace(_touch_activity=lambda _desc: None), 0).tick()
+            child.steer.assert_not_called()
+        finally:
+            _unregister_subagent(child._subagent_id, agent=child)
+
+    def test_rejected_checkpoint_is_not_recorded_or_retried(self):
+        from tools.delegate_tool_child_run import _Heartbeat
+        from tools.delegate_tool_registry import (
+            _get_checkpoint_queued_at_calls, _register_subagent, _unregister_subagent,
+        )
+
+        child = MagicMock()
+        child._subagent_id = "checkpoint-rejected"
+        child.get_activity_summary.return_value = {
+            "current_tool": None, "api_call_count": 5, "max_iterations": 250,
+        }
+        child.steer.return_value = False
+        _register_subagent({"subagent_id": child._subagent_id, "agent": child, "status": "running"})
+        try:
+            heartbeat = _Heartbeat(child, types.SimpleNamespace(_touch_activity=lambda _desc: None), 0)
+            with patch("tools.delegate_tool._get_checkpoint_after_api_calls", return_value=5):
+                heartbeat.tick()
+                heartbeat.tick()
+            child.steer.assert_called_once()
+            self.assertIsNone(_get_checkpoint_queued_at_calls(child._subagent_id, child))
+        finally:
+            _unregister_subagent(child._subagent_id, agent=child)
+
+
+class TestCheckpointConfig(unittest.TestCase):
+    def test_default_is_disabled_and_has_no_environment_fallback(self):
+        from hermes_cli.config_defaults import DEFAULT_CONFIG
+        from tools.delegate_tool import _get_checkpoint_after_api_calls
+
+        self.assertEqual(DEFAULT_CONFIG["delegation"]["checkpoint_after_api_calls"], 0)
+        with (
+            patch("tools.delegate_tool._load_config", return_value={}),
+            patch.dict(os.environ, {"DELEGATION_CHECKPOINT_AFTER_API_CALLS": "7"}),
+        ):
+            self.assertEqual(_get_checkpoint_after_api_calls(), 0)
+
+    def test_positive_integer_parses_and_invalid_values_disable(self):
+        from tools.delegate_tool import _get_checkpoint_after_api_calls
+
+        for raw, expected in (("7", 7), (0, 0), (-1, 0), (True, 0), (1.9, 0), ("not-a-number", 0)):
+            with self.subTest(raw=raw), patch("tools.delegate_tool._load_config", return_value={
+                "checkpoint_after_api_calls": raw,
+            }):
+                self.assertEqual(_get_checkpoint_after_api_calls(), expected)
+
 
 class TestDelegationReasoningEffort(unittest.TestCase):
     """Tests for delegation.reasoning_effort config override."""

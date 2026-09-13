@@ -25,10 +25,12 @@ logger = logging.getLogger(__name__)
 # ``tools.delegate_tool.<name>`` is re-imported here. Mutable flag globals live only in their owning module.
 from tools.delegate_tool_child_run import (  # noqa: F401
     _ChildRun, _attach_child, _build_result_entry, _dump_subagent_timeout_diagnostic, _fabricated_entry,
-    _lease_child_credential, _merge_late_steer, _register_child, _start_heartbeat, _validate_child_output_schema,
+    _lease_child_credential, _merge_late_steer, _record_queued_checkpoint, _register_child, _start_heartbeat,
+    _validate_child_output_schema,
 )
 from tools.delegate_tool_config import (  # noqa: F401
-    _DEFAULT_MAX_CONCURRENT_CHILDREN, _get_child_timeout, _get_max_async_children, _get_max_concurrent_children,
+    _DEFAULT_MAX_CONCURRENT_CHILDREN, _get_checkpoint_after_api_calls, _get_child_timeout, _get_max_async_children,
+    _get_max_concurrent_children,
     _get_max_spawn_depth, _get_orchestrator_enabled, _get_subagent_approval_callback, _get_worktree_isolation,
     _inherit_parent_capabilities, _load_config, _merge_request_overrides, _resolve_child_credential_pool,
     _resolve_child_runtime, _resolve_delegation_credentials,
@@ -349,9 +351,10 @@ def _run_single_child(
         _late_pending_steer = run.close_steering()
         logging.exception(f"[subagent-{task_index}] failed")
         # Entry status "error" (contract), progress event status "failed" (UI vocabulary).
+        error_entry = _fabricated_entry(task_index, "error", str(exc), child, run.elapsed())
+        _record_queued_checkpoint(error_entry, _subagent_id, child)
         return run.finish_failed(
-            _fabricated_entry(task_index, "error", str(exc), child, run.elapsed()), _late_pending_steer,
-            preview=str(exc), summary=str(exc), status="failed",
+            error_entry, _late_pending_steer, preview=str(exc), summary=str(exc), status="failed",
         )
     finally:
         run.cleanup(heartbeat=heartbeat, child_pool=child_pool, leased_cred_id=leased_cred_id, close_deferred=_child_close_deferred)

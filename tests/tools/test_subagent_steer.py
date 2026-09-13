@@ -301,6 +301,57 @@ class TestMissedSteerRetention:
         assert accepted_box["accepted"] is True
         assert result_box["result"]["missed_steer"] == "retain this exact text"
 
+    def test_checkpoint_and_completion_have_one_registry_linearization_order(self):
+        from tools.delegate_tool_registry import (
+            _close_subagent_steering,
+            _get_checkpoint_queued_at_calls,
+            _queue_checkpoint_if_due,
+        )
+
+        checkpoint_text = (
+            "Converge on the current accepted deliverable now. Do not expand scope or start optional hardening. "
+            "Preserve coherent authorized Git work, run only the already-selected verification needed for this "
+            "deliverable, return a concise completion brief, and stop."
+        )
+        class RaceAgent(_StubAgent):
+            def _drain_pending_steer(self):
+                return self.steered[-1] if self.steered else None
+
+        for iteration in range(20):
+            sid = f"checkpoint-completion-race-{iteration}"
+            agent = RaceAgent()
+            _with_registered(sid, agent)
+            start = threading.Barrier(3)
+            outcome = {}
+
+            def checkpoint():
+                start.wait()
+                outcome["queued"] = _queue_checkpoint_if_due(sid, agent, 5, 5)
+
+            def complete():
+                start.wait()
+                outcome["late"] = _close_subagent_steering(sid, agent)
+
+            checkpoint_thread = threading.Thread(target=checkpoint)
+            completion_thread = threading.Thread(target=complete)
+            checkpoint_thread.start()
+            completion_thread.start()
+            start.wait()
+            checkpoint_thread.join(2)
+            completion_thread.join(2)
+            try:
+                assert not checkpoint_thread.is_alive() and not completion_thread.is_alive()
+                if outcome["queued"]:
+                    assert outcome["late"] == checkpoint_text
+                    assert _get_checkpoint_queued_at_calls(sid, agent) == 5
+                    assert agent.steered == [checkpoint_text]
+                else:
+                    assert outcome["late"] is None
+                    assert _get_checkpoint_queued_at_calls(sid, agent) is None
+                    assert agent.steered == []
+            finally:
+                _unregister_subagent(sid, agent=agent)
+
     def test_steer_after_run_return_is_rejected_before_completion_callback(self):
         """Once the child returns, a blocked completion callback cannot extend acceptance."""
         from tools.delegate_tool import _run_single_child

@@ -1246,6 +1246,9 @@ DEFAULT_CONFIG = {
         # ~/.hermes/cache/delegation/ with a head+tail window + read_file offset footer, nothing
         # lost). 0 disables the ceiling; the dynamic budget still applies.
         "max_summary_chars": 24000,
+        # Queue one ordinary steer once the heartbeat observes this child API-call count. 0 disables;
+        # the existing steer queue never interrupts a tool batch.
+        "checkpoint_after_api_calls": 0,
         # Wall-clock cap per child (seconds, floor 30). 0 = no timeout: children fail only from real
         # errors (API, tools, iteration budget).
         "child_timeout_seconds": 0,
