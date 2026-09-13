@@ -13,7 +13,22 @@ _SUBAGENT_SNAPSHOT_FIELDS = (
     "subagent_id", "parent_id", "depth", "goal", "delegation_id", "model",
     "started_at", "status", "tool_count", "last_tool", "accepting_steer",
 )
+_SUBAGENT_ACTIVITY_FIELDS = ("api_call_count", "max_iterations")
 _SUBAGENT_TAIL_BYTES = 16384
+
+
+def _subagent_snapshot(record):
+    snapshot = {key: record.get(key) for key in _SUBAGENT_SNAPSHOT_FIELDS}
+    summary_fn = getattr(record.get("agent"), "get_activity_summary", None)
+    if not callable(summary_fn):
+        return snapshot
+    try:
+        summary = summary_fn()
+    except Exception:
+        return snapshot
+    if isinstance(summary, dict):
+        snapshot.update({key: summary[key] for key in _SUBAGENT_ACTIVITY_FIELDS if key in summary})
+    return snapshot
 
 
 def _owned_subagent_records(session_id, transport, owner):
@@ -34,7 +49,7 @@ def _(rid, params):
         return _err(rid, 4001, "session not found or not owned by this transport")
     live = _owned_subagent_records(session_id, transport, owner)
     return _ok(rid, {
-        "subagents": [{key: r.get(key) for key in _SUBAGENT_SNAPSHOT_FIELDS} for r in live],
+        "subagents": [_subagent_snapshot(record) for record in live],
         "delegations": [],
     })
 

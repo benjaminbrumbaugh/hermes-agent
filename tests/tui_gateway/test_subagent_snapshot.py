@@ -77,6 +77,37 @@ def test_snapshot_projects_only_this_sessions_runtime_records(runtime):
         assert finished.wait(10)
 
 
+def test_snapshot_reads_authoritative_child_counters_and_omits_older_fields(runtime):
+    from run_agent import AIAgent
+    from tools.delegate_tool_child_run import _register_child
+    from tools.delegate_tool_registry import _unregister_subagent
+
+    _, owner, transport, call = runtime
+    current = SimpleNamespace(
+        _subagent_id="current", _delegate_depth=1, model="test", _current_tool=None,
+        _api_call_count=3, max_iterations=25,
+        iteration_budget=SimpleNamespace(used=3, max_total=25),
+        _last_activity_ts=None, _last_activity_desc="", _last_activity_provenance=None,
+    )
+    current.get_activity_summary = lambda: AIAgent.get_activity_summary(current)  # type: ignore[arg-type]
+    older = SimpleNamespace(_subagent_id="older", _delegate_depth=1, model="test")
+    for child in (current, older):
+        _register_child(child, None, "owned", owner_session_id="ui-owner",
+                        owner_transport=transport, owner_session_record=owner)
+    try:
+        rows = {row["subagent_id"]: row for row in call("subagent.list")["result"]["subagents"]}
+        assert (rows["current"]["api_call_count"], rows["current"]["max_iterations"]) == (3, 25)
+        assert "api_call_count" not in rows["older"] and "max_iterations" not in rows["older"]
+
+        current._api_call_count = 4
+        current_row = next(row for row in call("subagent.list")["result"]["subagents"]
+                           if row["subagent_id"] == "current")
+        assert current_row["api_call_count"] == 4
+    finally:
+        _unregister_subagent("current")
+        _unregister_subagent("older")
+
+
 def test_live_tail_and_steer_share_exact_owner_and_end_with_child(runtime):
     from run_agent import AIAgent
     from tools.delegate_tool_child_run import _register_child
