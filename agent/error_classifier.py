@@ -755,6 +755,7 @@ def _classify_400(c: _Ctx) -> Verdict:
     verdict = _first_match(msg, _IMAGE_TOOL_RULES)
     if verdict is not None:
         return verdict
+    error_param = str(_error_obj(c.body).get("param") or "").lower()
     # Invalid encrypted reasoning replay blob (OpenAI Responses); before
     # overflow because "encrypted content … could not be verified" trips it.
     if code == "invalid_encrypted_content" or "invalid_encrypted_content" in msg or (
@@ -762,6 +763,9 @@ def _classify_400(c: _Ctx) -> Verdict:
     ) or "could not decrypt the provided encrypted_content" in msg or (
         # Azure Foundry (gpt-6-astra) rejects replayed reasoning from several prior responses this way (#105369).
         "conflicting authenticated continuation identities" in msg
+    ) or (
+        code == "string_above_max_length"
+        and ("encrypted_content" in error_param or "encrypted_content" in msg)
     ):
         return _V_INVALID_ENCRYPTED
     # Reasoning-mandatory route rejecting a disable (GLM-5.3 on Nous Portal / OpenRouter). Deterministic

@@ -767,6 +767,28 @@ class TestClassifyApiError:
         assert result.retryable is True
         assert result.should_fallback is False
 
+    def test_oversized_encrypted_content_reaches_replay_strip(self):
+        message = (
+            "Invalid 'input[0].encrypted_content': string too long. Expected a string with maximum "
+            "length 20971520, but got a string with length 32732152 instead."
+        )
+        e = MockAPIError(
+            f"Error code: 400 - {message}",
+            status_code=400,
+            body={"error": {
+                "message": message,
+                "type": "invalid_request_error",
+                "param": "input[0].encrypted_content",
+                "code": "string_above_max_length",
+            }},
+        )
+
+        result = classify_api_error(e, provider="openai-codex", model="gpt-5.6-sol")
+
+        assert result.reason == FailoverReason.invalid_encrypted_content
+        assert result.retryable is True
+        assert result.should_fallback is False
+
     # ── Codex masked encrypted-reasoning replay rejection (#92353) ──
 
     _CODEX_MASKED = {"message": "Request blocked.", "type": "invalid_request_error", "param": None, "code": "invalid_prompt"}
