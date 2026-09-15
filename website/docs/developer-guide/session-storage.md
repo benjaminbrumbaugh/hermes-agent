@@ -475,3 +475,25 @@ This is derived from `hermes_constants.get_hermes_home()` which resolves to
 
 The database file, WAL file (`state.db-wal`), and shared-memory file
 (`state.db-shm`) are all created in the same directory.
+
+### Retired WAL evidence
+
+When a writer loses its WAL generation, Hermes captures the exact inode it still holds into an
+adjacent `state.db.retired-wal-*/` directory. Read `manifest.json` before attempting recovery.
+`main.mode: copied` includes a main image to inspect with
+`hermes sessions recover --source <artifact>/state.db --inspect-only`; a successful capture
+does not establish that its WAL belongs on the current database.
+
+If the main pathname disappears or its image cannot be read, Hermes preserves the verified WAL
+bytes, digest and inode identity with `capture_status: incomplete` and `main.mode: unavailable`.
+`RetiredGenerationCaptureError.artifact_path` and the error log identify the retained artifact.
+The close operation still fails and keeps the writer handle for a retry; retained bytes alone
+do not make a recoverable database. A publication failure may instead leave a `.partial`
+directory whose manifest or durability is incomplete. Preserve that directory for inspection.
+Repeated failed close attempts can produce separate artifacts.
+
+An `unavailable` or size-limited `header_only` main image must not be replaced with an arbitrary
+database to replay the WAL. Recovery requires a validated matching main image. The recovery
+inspector refuses an absent source database before opening SQLite. Retired artifact directories
+are excluded from ordinary backups; preserve them separately as a whole, without changing the
+live database or its sidecars.

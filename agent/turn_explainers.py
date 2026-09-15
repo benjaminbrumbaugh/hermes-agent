@@ -129,8 +129,9 @@ _PERSISTENCE_CAUSE_EXPLANATIONS: Dict[str, str] = {
         "manifest.main.mode is `copied`, inspect that artifact with `hermes "
         "sessions recover --source <state.db.retired-wal-*/state.db> "
         "--inspect-only` before deciding whether its committed frames belong "
-        "on the current database. A `header_only` artifact is forensic and "
-        "does not contain a copied state.db to inspect. Unwritten messages "
+        "on the current database. A `header_only` or `unavailable` main image is forensic and "
+        "does not contain a copied state.db to inspect. Preserve incomplete artifacts; "
+        "do not replay their WAL without a validated matching main image. Unwritten messages "
         "were diverted to sessions/<session_id>.jsonl and, on the gateway, "
         "pending_messages/pending-*.json."
     ),

@@ -238,7 +238,14 @@ _SQLITE_HEADER_BYTES = 100
 
 
 class RetiredGenerationCaptureError(RuntimeError):
-    """The retired WAL generation could not be captured durably; nothing was mutated."""
+    """Capture is incomplete; any retained evidence is identified by ``artifact_path``.
+
+    A retained WAL is not a validated database image and must not settle the writer's handle.
+    """
+
+    def __init__(self, message: str, *, artifact_path: Optional[Path] = None):
+        self.artifact_path = artifact_path
+        super().__init__(message)
 
 
 def _fsync_path(path: Path) -> None:
@@ -333,6 +340,23 @@ def _parse_sqlite_header(header: bytes) -> Dict[str, Any]:
     return {"valid": True, "page_size": 65536 if raw_page_size == 1 else raw_page_size, **parsed}
 
 
+def _capture_main_image(db_path: Path, staging: Path) -> Dict[str, Any]:
+    header = _pread_db_range(db_path, 0, _SQLITE_HEADER_BYTES)
+    if header is None:
+        raise RetiredGenerationCaptureError(f"cannot read the main image header of {db_path}")
+    main_size = os.stat(db_path).st_size
+    main: Dict[str, Any] = {"identity": list(_stat_db_file_identity(db_path) or ()) or None,
+                            "size": main_size, "header": _parse_sqlite_header(header)}
+    if main_size <= RETIRED_GENERATION_MAIN_IMAGE_MAX_BYTES:
+        main.update(mode="copied", **_copy_main_image(db_path, staging / db_path.name, size=main_size))
+    else:
+        header_file = staging / (db_path.name + ".header")
+        header_file.write_bytes(header)
+        _fsync_path(header_file)
+        main.update(mode="header_only", file=header_file.name, bytes=len(header))
+    return main
+
+
 def capture_retired_wal_generation(
     db_path, *, sidecar_identity: Dict[str, tuple], trigger: str,
 ) -> Path:
@@ -343,7 +367,9 @@ def capture_retired_wal_generation(
     cap) and ``manifest.json`` with identities, sizes, digests and the sidecar generation found at the
     path at capture time. Nothing is merged: whether those frames belong on top of the main file is
     the operator's decision. Raises :class:`RetiredGenerationCaptureError` when the exact generation
-    cannot be located or written; no descriptor is ever closed, moved or truncated.
+    cannot be located or written, or the main image is unavailable. In the latter case the verified
+    WAL is retained with an incomplete manifest and the error identifies its artifact directory.
+    No descriptor is ever closed, moved or truncated.
     """
     db_path = Path(db_path)
     wal_identity = tuple(sidecar_identity.get("-wal") or ())
@@ -366,9 +392,10 @@ def capture_retired_wal_generation(
         n += 1
         final = db_path.with_name(f"{stem}-{n}")
     staging = final.with_name(final.name + ".partial")
+    manifest: Optional[Dict[str, Any]] = None
     try:
         staging.mkdir(parents=True, exist_ok=False)
-        manifest: Dict[str, Any] = {
+        manifest = {
             "version": RETIRED_GENERATION_MANIFEST_VERSION,
             "database": str(db_path),
             "trigger": trigger,
@@ -376,6 +403,7 @@ def capture_retired_wal_generation(
             "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "python": sys.version.split()[0],
             "sqlite": sqlite3.sqlite_version,
+            "capture_status": "complete",
             "wal": {"identity": list(wal_identity),
                     **_copy_descriptor(wal_fd, staging / (db_path.name + "-wal"), size=wal_size)},
             "shm": None,
@@ -392,33 +420,37 @@ def capture_retired_wal_generation(
             with contextlib.suppress(OSError):  # SQLite rebuilds the index; the WAL is what matters
                 manifest["shm"] = {"identity": list(shm_identity), **_copy_descriptor(
                     shm_fd, staging / (db_path.name + "-shm"), size=os.fstat(shm_fd).st_size)}
-        header = _pread_db_range(db_path, 0, _SQLITE_HEADER_BYTES)
-        if header is None:
-            raise RetiredGenerationCaptureError(f"cannot read the main image header of {db_path}")
-        main_size = os.stat(db_path).st_size
-        main: Dict[str, Any] = {"identity": list(_stat_db_file_identity(db_path) or ()) or None,
-                                "size": main_size, "header": _parse_sqlite_header(header)}
-        if main_size <= RETIRED_GENERATION_MAIN_IMAGE_MAX_BYTES:
-            main.update(mode="copied", **_copy_main_image(db_path, staging / db_path.name, size=main_size))
-        else:
-            header_file = staging / (db_path.name + ".header")
-            header_file.write_bytes(header)
-            _fsync_path(header_file)
-            main.update(mode="header_only", file=header_file.name, bytes=len(header))
-        manifest["main"] = main
+        try:
+            manifest["main"] = _capture_main_image(db_path, staging)
+        except (OSError, RetiredGenerationCaptureError) as exc:
+            # Losing the main pathname must not discard the WAL we already copied and fsynced.
+            manifest["capture_status"] = "incomplete"
+            manifest["main"] = {"mode": "unavailable", "error": str(exc)}
+            manifest["note"] = (
+                "WAL bytes retained without a main image. This is incomplete forensic evidence, not a "
+                "recoverable database. Do not replay or merge it without a validated matching main image."
+            )
         # Late import: utils pulls agent-side deps; the capture must stay dependency-light.
         from utils import atomic_json_write
         atomic_json_write(staging / RETIRED_GENERATION_MANIFEST, manifest, sort_keys=True)
         _fsync_path(staging)
         os.replace(staging, final)
         _fsync_path(final.parent)
-    except RetiredGenerationCaptureError:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
-    except OSError as exc:
-        shutil.rmtree(staging, ignore_errors=True)
+    except (OSError, RetiredGenerationCaptureError) as exc:
+        # A failed publication must not erase a verified WAL either; its durability is uncertain.
+        retained = (final if final.exists() else staging) if manifest is not None else None
+        if retained is None:
+            shutil.rmtree(staging, ignore_errors=True)
         raise RetiredGenerationCaptureError(
-            f"could not write the retired WAL generation of {db_path} under {staging}: {exc}") from exc
+            f"could not finish the retired WAL capture of {db_path} under {retained or staging}: {exc}",
+            artifact_path=retained,
+        ) from exc
+    if manifest["capture_status"] == "incomplete":
+        raise RetiredGenerationCaptureError(
+            f"{manifest['main']['error']}; WAL evidence retained at {final}, but capture is incomplete; "
+            "the handle stays open for a retry",
+            artifact_path=final,
+        )
     return final
 
 

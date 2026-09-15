@@ -1086,7 +1086,8 @@ class SessionDB(
         but they live only in an unlinked inode that dies with this process's last descriptor, and
         the canonical DeletedWalGenerationError remediation is to stop the writers. Capturing at the
         first halt (or at close(), whichever sees the loss first) makes "preserve" outlive the
-        process. Raises RetiredGenerationCaptureError; nothing is mutated on failure."""
+        process. Raises RetiredGenerationCaptureError on incomplete capture; its artifact_path may
+        identify retained forensic evidence, which does not count as a completed capture."""
         with self._retired_capture_lock:
             if self._retired_generation_capture is not None:
                 return self._retired_generation_capture
@@ -1198,7 +1199,8 @@ class SessionDB(
                 self._pin_connection(self._conn)
             logger.error(
                 "Could not capture the retired WAL generation of %s at close: %s. The handle stays open "
-                "and close() retries the capture; those frames are NOT yet preserved.", self.db_path, exc,
+                "and close() retries the incomplete capture; retained WAL evidence alone is not a "
+                "recoverable database.", self.db_path, exc,
             )
             raise
         logger.warning(

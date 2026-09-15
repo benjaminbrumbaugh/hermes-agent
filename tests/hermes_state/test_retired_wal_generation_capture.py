@@ -255,6 +255,71 @@ def test_capture_refuses_to_guess_by_pathname(tmp_path, force_wal):
         db.close()
 
 
+def _assert_missing_main_preserves_incomplete_capture(tmp_path, monkeypatch, publication_failure):
+    """Observe real SQLite descriptors and recovery entry point, not recoverability of WAL alone."""
+    from hermes_cli.session_recovery import inspect_session_database
+
+    path = tmp_path / "state.db"
+    db = make_db(path, "gw-0", "seed")
+    require_wal(db)
+    _wal_only_sentinel(db, "gw-0")
+    identity = db._db_sidecar_identity["-wal"]
+    lose_sidecars(path, rename=False)
+    fd = _descriptor_for(identity)
+    original = _descriptor_contents(fd)
+    # Keep the exact main inode elsewhere solely to let finally close the test writer safely.
+    parked_main = path.rename(tmp_path / "main-for-test-cleanup")
+    if publication_failure:
+        import hermes_state_dbfile
+        fsync_path = hermes_state_dbfile._fsync_path
+
+        def fail_staging_sync(target):
+            if target.name.endswith(".partial"):
+                raise OSError("injected directory fsync failure")
+            return fsync_path(target)
+
+        monkeypatch.setattr(hermes_state_dbfile, "_fsync_path", fail_staging_sync)
+    try:
+        with pytest.raises(RetiredGenerationCaptureError) as caught:
+            db.close()
+        artifacts = list(tmp_path.glob("state.db.retired-wal-*"))
+        assert len(artifacts) == 1, "verified WAL bytes must survive missing-main capture failure"
+        artifact = artifacts[0]
+        assert artifact.name.endswith(".partial") == publication_failure
+        assert caught.value.artifact_path == artifact
+        assert str(artifact) in str(caught.value)
+        manifest = _manifest(artifact)
+        assert manifest["capture_status"] == "incomplete"
+        assert manifest["main"]["mode"] == "unavailable" and manifest["main"]["error"]
+        assert tuple(manifest["wal"]["identity"]) == identity
+        captured = artifact / "state.db-wal"
+        assert captured.read_bytes() == original and original
+        assert manifest["wal"]["sha256"] == hashlib.sha256(original).hexdigest()
+        assert _descriptor_contents(fd) == original
+        assert db._conn is not None and db._retired_generation_capture is None
+        with pytest.raises(FileNotFoundError):
+            inspect_session_database(artifact / "state.db")
+        assert not (artifact / "state.db").exists()
+        assert captured.read_bytes() == original
+    finally:
+        if publication_failure:
+            monkeypatch.setattr(hermes_state_dbfile, "_fsync_path", fsync_path)
+        parked_main.rename(path)
+        db.close()
+
+
+@pytest.mark.macos_only
+@pytest.mark.parametrize("publication_failure", [False, True], ids=["published", "fsync-failed"])
+def test_missing_main_preserves_incomplete_capture_macos(tmp_path, force_wal, monkeypatch, publication_failure):
+    _assert_missing_main_preserves_incomplete_capture(tmp_path, monkeypatch, publication_failure)
+
+
+@pytest.mark.linux_only
+@pytest.mark.parametrize("publication_failure", [False, True], ids=["published", "fsync-failed"])
+def test_missing_main_preserves_incomplete_capture_linux(tmp_path, force_wal, monkeypatch, publication_failure):
+    _assert_missing_main_preserves_incomplete_capture(tmp_path, monkeypatch, publication_failure)
+
+
 # ── Recoverable after the writer process has exited ──────────────────────────────────────────────────
 #
 # The gateway writer A runs in its OWN process, seeds + checkpoints history, leaves rows only in its WAL
