@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 import urllib.request
@@ -63,11 +64,27 @@ def runtimes_root() -> Path:
 
 
 def manifest_verified(manifest: Path) -> bool:
-    """True when an install manifest records a verified_version (missing/damaged -> False)."""
+    """A receipt must contain the requested build's version line, never loader diagnostics."""
     try:
-        return bool(json.loads(manifest.read_text(encoding="utf-8")).get("verified_version"))
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        return isinstance(data, dict) and bool(_version_line(data.get("verified_version"), data.get("tag")))
     except (json.JSONDecodeError, OSError):
         return False
+
+
+def _version_line(output: str, tag: str) -> str | None:
+    """Support both legacy build-number versions and newer semver + build records."""
+    if not isinstance(output, str) or not isinstance(tag, str):
+        return None
+    expected = tag.removeprefix("b")
+    for line in output.splitlines():
+        match = re.fullmatch(
+            r"version:\s+(?:(\d+)(?:\s+\([^)]*\))?|\S+\s+\(build (\d+), commit [^)]+\))",
+            line.strip(),
+        )
+        if match and (match.group(1) or match.group(2)) == expected:
+            return line.strip()
+    return None
 
 
 def _release_number(tag: str) -> int:
@@ -226,16 +243,20 @@ def server_binary(install_dir: Path) -> Path:
 
 
 def verify_install(install_dir: Path, tag: str) -> str:
-    """Run --version; require the tag's build number in the output (printed WITHOUT the 'b')."""
+    """Require a successful process and the exact build reported on a version line."""
     exe = server_binary(install_dir)
-    out = subprocess.run([str(exe), "--version"], capture_output=True,
-                         text=True, encoding="utf-8", errors="replace",
-                         timeout=60, cwd=str(exe.parent))
-    text = (out.stdout + out.stderr).strip()
-    if tag.lstrip("b") not in text:
+    try:
+        out = subprocess.run([str(exe), "--version"], capture_output=True,
+                             text=True, encoding="utf-8", errors="replace",
+                             timeout=60, cwd=str(exe.parent))
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise BinaryResolutionError(f"version check could not run for {exe}: {exc}") from exc
+    text = (out.stdout + "\n" + out.stderr).strip()
+    version = _version_line(text, tag)
+    if out.returncode != 0 or version is None:
         raise BinaryResolutionError(
-            f"version check failed for {exe}: expected {tag}, got: {text[:120]}")
-    return text.splitlines()[0] if text else ""
+            f"version check failed for {exe}: exit {out.returncode}, expected {tag}, got: {text[:240]}")
+    return version
 
 
 def prune_old_tags(keep: list[str]) -> None:
@@ -261,6 +282,12 @@ def ensure_runtime_installed(tag: str, backend: str,
     install_dir = plan.install_dir
     manifest_path = install_dir / "manifest.json"
     if manifest_verified(manifest_path):
+        try:
+            verify_install(install_dir, tag)
+        except BinaryResolutionError:
+            # A former success must not keep an incompatible or damaged executable marked installed.
+            manifest_path.unlink(missing_ok=True)
+            raise
         return install_dir
 
     install_dir.mkdir(parents=True, exist_ok=True)

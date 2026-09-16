@@ -28,6 +28,13 @@ That's the whole flow. The server starts and stops with Hermes, restarts
 survive app restarts, and switching back to a cloud provider is one click
 in the model picker.
 
+Runtime verification runs `llama-server --version` and requires both a successful exit and
+the requested build number in its version record. Hermes checks the executable again before
+reusing a cached installation. A missing system library or another startup failure leaves
+the runtime unverified and reports the error; it does not count as a successful installation.
+Passing this check establishes executable startup, while loading a model and generating a
+response establish that inference works on your machine.
+
 ## How Hermes picks what to download
 
 Every model in the catalog is priced against **your machine** before you

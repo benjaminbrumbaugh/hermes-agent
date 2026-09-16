@@ -530,7 +530,7 @@ def test_boot_in_flight_real_gate(tmp_path, monkeypatch):
     install = runtimes_root() / "b10290" / "cuda"
     install.mkdir(parents=True)
     (install / "manifest.json").write_text(
-        json.dumps({"tag": "b10290", "verified_version": "5015 (abc)"}),
+        json.dumps({"tag": "b10290", "verified_version": "version: 10290 (abc)"}),
         encoding="utf-8")
     assert ep._boot_in_flight(enabled) is True
     # Disabled -> False even when installed.
