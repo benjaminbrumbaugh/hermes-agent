@@ -242,6 +242,7 @@ def test_already_up_to_date_path_demotes_on_windows_resume_failure(monkeypatch):
                 assume_yes=True, gateway_mode=False, gw_input_fn=None,
                 pre_update_snapshot_id=None, had_desktop_app_before_update=False,
                 active_lazy_features=None, active_tool_dependencies=None,
+                discard_local_changes=False, keep_stash=False,
                 _windows_gateway_resume={"resume_needed": True},
             )
 
