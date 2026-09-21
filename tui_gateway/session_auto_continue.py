@@ -107,13 +107,21 @@ def _maybe_schedule_auto_continue(sid: str, session: dict, session_key: str) -> 
             # nested notes). Set here, not at schedule time, so a bail above leaves nothing for a racing user turn.
             session["_auto_continue_attempt"], session["_auto_continue_prompt"] = attempt, marker["prompt"]
         try:
-            _emit("status.update", sid, {"kind": "process", "text": "Resuming interrupted turn…"})
-            _emit("message.start", sid)
-            _run_prompt_submit(rid, sid, session, text, display_kind="auto_continue")
+            from gateway.warning_notifications import render_notification
+            diagnostic = marker.get("notification_category") == "diagnostic"
+            with _session_profile_runtime_scope(session):
+                def announce():
+                    _emit("status.update", sid, {"kind": "process", "text": "Resuming interrupted turn…"})
+                    _emit("message.start", sid)
+                render_notification(announce, platform="tui", diagnostic=diagnostic)
+                _run_prompt_submit(rid, sid, session, text, display_kind="auto_continue",
+                    **({"display_metadata": {"notification_category": "diagnostic"}} if diagnostic else {}))
         except Exception as exc:
             _notif_log_failure("auto-continue dispatch failed", exc)
             _notif_release_turn(session)  # rebound from session_notifications
-    threading.Thread(target=kickoff, daemon=True).start()
+    if _start_session_work(kickoff, name=f"auto-continue-{sid}") is None:
+        session["_auto_continue_scheduled"] = False
+        return None
     logger.info("auto-continue scheduled for session %s (attempt %d, interrupted %.0fs ago)", session_key, attempt, age)
     return {"attempt": attempt, "interrupted_at": marker["started_at"]}
 
@@ -358,7 +366,9 @@ def _drain_queued_prompt(rid, sid: str, session: dict) -> bool:
     external_submission_id = None
     queue_generation = 0
     missing_external_owner = False
-    with session["history_lock"]:
+    with _session_turn_admission(session) as admitted:
+        if not admitted:
+            return False
         if session.get("_closing"):
             closing_external_ids = _queued_external_submission_ids(session)
             retained = [
@@ -382,6 +392,10 @@ def _drain_queued_prompt(rid, sid: str, session: dict) -> bool:
                         for peer in _session_live_transports(session)):
                     missing_external_owner = True
             elif (queued_transport := queued.get("transport")) is not None:
+                # The queuer's transport is pinned so the drained turn reaches the client that sent it — but
+                # ATTACHED, not rebound: a mid-turn prompt from a second client used to silence the first for the
+                # whole drained turn. A peer that disconnected while its prompt sat in the queue is skipped: the
+                # prompt still runs, only the dead pin is dropped.
                 if not _transport_is_dead(queued_transport):
                     _attach_session_transport(session, queued_transport)
             if not missing_external_owner:
@@ -467,6 +481,10 @@ def _inflight_snapshot(session: dict) -> dict | None:
     if not (user or assistant or streaming or error):
         return None
     snapshot = {"assistant": assistant, "streaming": streaming, "user": user}
+    if isinstance(display_kind := turn.get("display_kind"), str) and display_kind:
+        snapshot["display_kind"] = display_kind
+    if isinstance(display_metadata := turn.get("display_metadata"), dict):
+        snapshot["display_metadata"] = dict(display_metadata)
     raw_offsets = turn.get("correction_offsets") or []
     correction_pairs = [(str(c), raw_offsets[i] if i < len(raw_offsets) else None)
                         for i, c in enumerate(turn.get("corrections") or []) if str(c).strip()]
@@ -496,13 +514,14 @@ def _emit_terminal_turn_error(
         with contextlib.suppress(Exception):
             from agent.error_surface import build_error_surface_from_exception
             error_surface = build_error_surface_from_exception(
-                error, provider=str(getattr(agent, "provider", "") or ""), model=str(getattr(agent, "model", "") or ""))
+                error, provider=str(getattr(agent, "provider", "") or ""), model=str(getattr(agent, "model", "") or ""),
+                api_key=getattr(agent, "api_key", None))
     with session["history_lock"]:
         _fail_inflight_turn(session, error, error_surface=error_surface)
         turn = session.get("inflight_turn") or {}
         message, partial = str(turn.get("error") or "turn failed"), str(turn.get("assistant") or "")
         cols = int(session.get("cols", 80))
-    text = partial or f"Error: {message}"
+    text = partial or turn_error_text(message, error_surface)
     rendered = ""
     with contextlib.suppress(Exception):
         rendered = render_message(text, cols)

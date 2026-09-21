@@ -1,32 +1,56 @@
-import { createContext, type ReactNode, useContext } from 'react'
+import { createContext, type ReactNode, useContext, useMemo } from 'react'
 
-import type { TimelineEntry } from './timeline-data'
+import type { ChatMessage } from '@/lib/chat-messages'
 
 export interface TranscriptWindowValue {
   /** Store holds older messages the runtime window has not materialized. */
   olderAvailable: boolean
-  /** Pull one more page of older messages out of the session store. */
-  expandWindow: () => void
-  /** Full set of loaded user prompts, including prompts outside the runtime window. */
-  timelineEntries?: readonly TimelineEntry[]
-  /** Runtime/session identity that scopes DOM reveal requests to one pane. */
-  revealScope?: string
+  /** Direct row addressing replaces only the display page; null means no jump. */
+  revealRow?: (rowId: number, signal: AbortSignal) => Promise<string | null>
+  /** Cancel any pending jump and reselect the current live tail. */
+  returnToLatest?: () => void
+  isHistorical?: boolean
+  newerAvailable?: boolean
+  /** Exactly the selected bounded source slice, not the full live store. */
+  currentMessages?: readonly ChatMessage[]
+  /** Pull a page, capturing the reader immediately before the prepend commits.
+   * A remote page resolves false on failure; callers can retry without growing
+   * an empty render window or holding the reader still during network I/O. */
+  expandWindow: (beforePrepend?: () => void) => void | Promise<boolean>
   /** Cancel an abandoned targeted store-window expansion. */
   cancelReveal?: () => void
-  /** Materialize a hidden prompt before the timeline scrolls to it. */
+  /** Grow the runtime window until a loaded prompt without a durable row is
+   * materialized, so the timeline can scroll to it. */
   revealMessage?: (messageId: string) => void
 }
 
-const TranscriptWindowContext = createContext<TranscriptWindowValue>({
+const DEFAULT_TRANSCRIPT_WINDOW: Required<TranscriptWindowValue> = {
   olderAvailable: false,
-  expandWindow: () => {}
-})
-
-export function TranscriptWindowProvider({ children, value }: { children: ReactNode; value: TranscriptWindowValue }) {
-  return <TranscriptWindowContext.Provider value={value}>{children}</TranscriptWindowContext.Provider>
+  expandWindow: () => {},
+  revealRow: async () => null,
+  returnToLatest: () => {},
+  isHistorical: false,
+  newerAvailable: false,
+  currentMessages: [],
+  cancelReveal: () => {},
+  revealMessage: () => {}
 }
 
-export function useTranscriptWindow(): TranscriptWindowValue {
+const TranscriptWindowContext = createContext<Required<TranscriptWindowValue>>(DEFAULT_TRANSCRIPT_WINDOW)
+
+export function TranscriptWindowProvider({
+  children,
+  value
+}: {
+  children: ReactNode
+  value: Pick<TranscriptWindowValue, 'olderAvailable' | 'expandWindow'> & Partial<TranscriptWindowValue>
+}) {
+  const complete = useMemo(() => ({ ...DEFAULT_TRANSCRIPT_WINDOW, ...value }), [value])
+
+  return <TranscriptWindowContext.Provider value={complete}>{children}</TranscriptWindowContext.Provider>
+}
+
+export function useTranscriptWindow(): Required<TranscriptWindowValue> {
   return useContext(TranscriptWindowContext)
 }
 
