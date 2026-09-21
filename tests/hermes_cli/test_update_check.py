@@ -45,6 +45,8 @@ def _stub_git(monkeypatch, *, head=SHA_A, origin="https://github.com/NousResearc
             return MagicMock(returncode=0, stdout=f"{origin}\n")
         if sub == "merge-base":
             return MagicMock(returncode=1, stdout="")
+        if sub == "symbolic-ref":
+            return MagicMock(returncode=0, stdout="refs/remotes/origin/main\n")
         raise AssertionError(f"passive check must not run git {sub}: {args}")
 
     monkeypatch.setattr(banner.subprocess, "run", fake_run)
@@ -78,7 +80,8 @@ def test_cache_is_daily_but_invalidated_when_head_moves(git_repo, monkeypatch):
 
     def write_cache(*, ts, head, behind):
         cache_file.write_text(json.dumps(
-            {"ts": ts, "behind": behind, "rev": None, "ver": __version__, "head": head}))
+            {"ts": ts, "behind": behind, "rev": None, "ver": __version__,
+             "head": head, "branch": "main"}))
 
     write_cache(ts=time.time() - banner._UPDATE_CHECK_CACHE_SECONDS + 60, head=SHA_A, behind=3)
     assert banner.check_for_updates() == 3

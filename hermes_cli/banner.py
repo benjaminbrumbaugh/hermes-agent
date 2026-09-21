@@ -332,8 +332,8 @@ def _check_via_rev(local_rev: str) -> Optional[int]:
     return _tips_behind(local_rev, _last_target_rev)
 
 
-def _check_via_local_git(repo_dir: Path) -> Optional[int]:
-    """Count commits behind origin/main in a local checkout.
+def _check_via_local_git(repo_dir: Path, branch: str) -> Optional[int]:
+    """Count commits behind the nominated branch in a local checkout.
 
     Passive checks never run ``git fetch``: every CLI/TUI/gateway start used to negotiate a pack
     with GitHub, and across the install base that was tens of millions of fetch requests a day
@@ -349,14 +349,15 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
         return None
     canonical = _canonical_github_remote(origin_url)
     if canonical.startswith("github.com/"):
-        target_rev = _github_branch_tip(canonical.removeprefix("github.com/"), "main")
+        target_rev = _github_branch_tip(canonical.removeprefix("github.com/"), branch)
     else:
         # Non-GitHub origin: one ls-remote for the tip (ref advertisement only, no pack transfer).
-        result = _git_run(["ls-remote", "origin", "refs/heads/main"], cwd=repo_dir, timeout=10, network=True)
+        result = _git_run(
+            ["ls-remote", "origin", f"refs/heads/{branch}"], cwd=repo_dir, timeout=10, network=True)
         target_rev = result.stdout.split()[0] if result is not None and result.returncode == 0 and result.stdout else None
     global _last_target_rev
     _last_target_rev = target_rev
-    # Tip SHAs alone can't distinguish "behind" from a local commit AHEAD of origin/main, and
+    # Tip SHAs alone can't distinguish "behind" from a local commit AHEAD of the target, and
     # misreporting an ahead checkout nudges the user into `hermes update`, which can wipe carried
     # work — hence the ancestor check inside _tips_behind, against the FRESH upstream SHA.
     return _tips_behind(head_rev, target_rev, repo_dir)
@@ -372,7 +373,8 @@ def check_for_updates(*, passive: bool = False) -> Optional[int]:
     """Check whether a Hermes update is available.
 
     If ``HERMES_REVISION`` is set (nix builds embed it), compare it to upstream main; otherwise
-    compare the local checkout's HEAD. Both go through the GitHub API, never ``git fetch``.
+    compare the local checkout's HEAD to the branch nominated by ``origin/HEAD``. Both go through
+    the GitHub API, never ``git fetch``.
     """
     def _read_config_opt_out():
         from hermes_cli.config import load_config
@@ -398,9 +400,14 @@ def check_for_updates(*, passive: bool = False) -> Optional[int]:
     now = time.time()
     repo_dir = None if embedded_rev else _resolve_repo_dir()
     head_rev = _git_stdout(["rev-parse", "HEAD"], cwd=repo_dir) if repo_dir is not None else None
+    if repo_dir is not None:
+        from hermes_cli.update_branch import default_update_branch
+        update_branch = default_update_branch(repo_dir)
+    else:
+        update_branch = "main"
     cached = _read_json(cache_file)
     if cached is not None and cached.get("rev") == embedded_rev and cached.get("ver") == VERSION \
-            and cached.get("head") == head_rev:
+            and cached.get("head") == head_rev and cached.get("branch", "main") == update_branch:
         ttl = _UPDATE_CHECK_CACHE_SECONDS if cached.get("behind") is not None else _UPDATE_CHECK_FAILURE_CACHE_SECONDS
         if now - cached.get("ts", 0) < ttl:
             return cached.get("behind")
@@ -408,10 +415,11 @@ def check_for_updates(*, passive: bool = False) -> Optional[int]:
         behind = _check_via_rev(embedded_rev)
     else:
         # No checkout and no embedded revision — status can't be determined.
-        behind = _check_via_local_git(repo_dir) if repo_dir is not None else None
+        behind = _check_via_local_git(repo_dir, update_branch) if repo_dir is not None else None
     _quiet(lambda: cache_file.write_text(
         json.dumps({"ts": now, "behind": behind, "rev": embedded_rev, "ver": VERSION,
-                    "head": head_rev or embedded_rev, "target": _last_target_rev}),
+                    "head": head_rev or embedded_rev, "target": _last_target_rev,
+                    "branch": update_branch}),
         encoding="utf-8"))
     return behind
 

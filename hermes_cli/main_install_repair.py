@@ -1187,5 +1187,11 @@ def _resolve_node_runtime_npm() -> str | None:
 
 
 def _resolve_update_branch(args) -> str:
-    """Normalize ``args.branch`` to a non-empty name (default ``main``; blank/whitespace = default)."""
-    return (getattr(args, "branch", None) or "main").strip() or "main"
+    """Use an explicit branch, else the checkout's nominated ``origin/HEAD`` branch."""
+    requested = (getattr(args, "branch", None) or "").strip()
+    if requested:
+        return requested
+    from hermes_cli.main import PROJECT_ROOT
+    from hermes_cli.update_branch import default_update_branch
+
+    return default_update_branch(PROJECT_ROOT)
