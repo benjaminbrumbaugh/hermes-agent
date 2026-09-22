@@ -236,6 +236,7 @@ export const ENUM_OPTIONS: Record<string, string[]> = {
   'approvals.mode': ['manual', 'smart', 'off'],
   'code_execution.mode': ['project', 'strict'],
   'context.engine': ['compressor', 'default', 'custom'],
+  'compression.timing': ['before_next_turn', 'after_reply'],
   // '' = inherit the agent's own effort; the rest is the shared scale.
   'delegation.reasoning_effort': ['', ...REASONING_EFFORTS],
   // NOTE: memory.provider is intentionally NOT listed here. Its options are
@@ -564,7 +565,8 @@ export const FIELD_LABELS: Record<string, string> = defineFieldCopy({
     threshold: 'Compression Threshold',
     codexGpt55Autoraise: 'Codex Compression Auto-Raise',
     targetRatio: 'Compression Target',
-    protectLastN: 'Protected Recent Messages'
+    protectLastN: 'Protected Recent Messages',
+    timing: 'Compaction Timing'
   },
   auxiliary: {
     compression: {
@@ -639,7 +641,9 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
   },
   compression: {
     enabled: 'Summarize older context when conversations get large.',
-    codexGpt55Autoraise: 'Raise compression to 85% for supported ChatGPT Codex OAuth models.'
+    codexGpt55Autoraise: 'Raise compression to 85% for supported ChatGPT Codex OAuth models.',
+    timing:
+      'Before next turn: summarize when you send your next message (free if you never do). After reply: summarize right after each reply so your next one starts immediately — costs a summary pass per crossing even if you never continue.'
   },
   auxiliary: {
     compression: {
@@ -751,6 +755,7 @@ export const SECTIONS: DesktopConfigSection[] = [
       'memory.provider',
       'context.engine',
       'compression.enabled',
+      'compression.timing',
       'compression.threshold',
       'compression.codex_gpt55_autoraise',
       'compression.target_ratio',
