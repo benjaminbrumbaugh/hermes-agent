@@ -1487,10 +1487,14 @@ def _parse_compression_config(agent, _agent_cfg) -> CompressionSettings:
     # Opt-in idle compaction: compact up front when a session resumes after this many
     # seconds idle (0 = disabled). Consumed by build_turn_context().
     idle_compact_after_seconds = max(0, int(cfg.get("idle_compact_after_seconds", 0)))
+    from agent.conversation_compression import normalize_compaction_timing
     return CompressionSettings(
         threshold=threshold,
         autoraise_notice_enabled=autoraise_notice_enabled,
         enabled=_cfg_flag(cfg, "enabled", True),
+        # When the threshold compaction runs: before the next turn (default) or right after a
+        # reply (eager; consumed by finalize_turn()).
+        timing=normalize_compaction_timing(cfg.get("timing")),
         target_ratio=target_ratio,
         protect_last=protect_last,
         # "lean" keeps a clamped 2.5%/10K-25K verbatim tail (continuity rides the summary);
@@ -1985,6 +1989,7 @@ def _build_context_engine(agent, _agent_cfg, cs, _custom_providers, _effective_c
     )
     agent.max_compression_attempts = cs.max_attempts
     agent.compression_idle_compact_after_seconds = cs.idle_compact_after_seconds
+    agent.compression_timing = cs.timing
 
 
 def _enforce_minimum_context(agent):
