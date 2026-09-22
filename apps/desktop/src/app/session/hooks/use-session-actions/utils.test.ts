@@ -1298,6 +1298,28 @@ describe('preserveLocalPendingTurnMessages', () => {
     ])
   })
 
+  // The text-part match is scoped to the settled row's own user occurrence:
+  // the same short answer under a NEWER prompt is a fresh reply history has
+  // not stored yet, even when an older folded row carries that exact text.
+  it('keeps a settled stream row under a later prompt even when an older fold carries its text', () => {
+    const folded: ChatMessage = {
+      id: '2-assistant',
+      role: 'assistant',
+      parts: [
+        { type: 'text', text: 'Checking.' },
+        { type: 'tool-call', toolCallId: 'call-1', toolName: 'terminal', result: 'ok' },
+        { type: 'text', text: 'Done.' }
+      ]
+    } as ChatMessage
+
+    const next = [msg('1-user', 'user', 'first'), folded, msg('3-user', 'user', 'again')]
+    const previous = [...next, streamingMsg('assistant-stream-later', 'Done.', { pending: false })]
+
+    expect(preserveLocalPendingTurnMessages(next, previous).map(message => message.id)).toContain(
+      'assistant-stream-later'
+    )
+  })
+
   // The authoritative history genuinely does not have this reply yet — the
   // pending row is the only copy and must survive (same contract as the
   // settled-row variant above).
