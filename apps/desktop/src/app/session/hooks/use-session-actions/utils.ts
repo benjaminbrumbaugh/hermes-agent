@@ -534,6 +534,20 @@ const withAuthoritativeTurnState = (local: ChatMessage, authoritative: ChatMessa
   return merged
 }
 
+/**
+ * Whether a committed assistant row carries `text` as one of its own text
+ * parts. Hydration folds a whole tool-using turn (each `message.interim`
+ * commentary, its tool calls, and the final answer) into ONE assistant row,
+ * while the live stream sealed each of those as its own `assistant-stream-*`
+ * bubble — so the folded row's joined text never equals any single bubble and
+ * ordinal pairing (N live rows vs 1 committed) cannot see them either.
+ */
+function committedRowCarriesTextPart(committed: ChatMessage, text: string): boolean {
+  const wanted = text.trim()
+
+  return committed.parts.some(part => part.type === 'text' && textWithoutReferenceLines(part.text).trim() === wanted)
+}
+
 export function preserveLocalPendingTurnMessages(
   nextMessages: ChatMessage[],
   previousMessages: ChatMessage[]
@@ -650,16 +664,22 @@ export function preserveLocalPendingTurnMessages(
     // one ordinal earlier, and re-appending it renders the same answer twice
     // (#70209). Only text-identical rows are dropped — a settled row the backend
     // has NOT committed yet is the only copy of that reply and must survive.
-    if (
-      isPendingAssistant &&
-      message.pending !== true &&
-      nextMessages.some(
-        candidate =>
-          candidate.role === 'assistant' &&
-          textWithoutReferenceLines(chatMessageText(candidate)) === textWithoutReferenceLines(chatMessageText(message))
-      )
-    ) {
-      continue
+    // Identity holds for the whole committed row OR for one of its text parts:
+    // a tool-using turn hydrates as one folded row whose parts are the
+    // individually sealed live bubbles.
+    if (isPendingAssistant && message.pending !== true) {
+      const settledText = textWithoutReferenceLines(chatMessageText(message))
+
+      if (
+        nextMessages.some(
+          candidate =>
+            candidate.role === 'assistant' &&
+            (textWithoutReferenceLines(chatMessageText(candidate)) === settledText ||
+              committedRowCarriesTextPart(candidate, settledText))
+        )
+      ) {
+        continue
+      }
     }
 
     if (authoritative) {
