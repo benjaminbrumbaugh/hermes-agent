@@ -131,6 +131,13 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
     "display.busy_input_mode": _select("Input behavior while agent is running", "interrupt", "queue", "steer"),
     "approvals.mode": _select("Dangerous command approval mode", "manual", "smart", "off"),
     "context.engine": _select("Context management engine", "default", "custom"),
+    "compression.timing": _select(
+        "When automatic compaction runs once the context crosses the threshold: "
+        "before_next_turn = at the start of your next message (nothing spent if it never comes); "
+        "after_reply = right after each reply, so the next one starts immediately on a compacted "
+        "transcript (one extra summary pass per crossing even if you never continue)",
+        "before_next_turn", "after_reply",
+    ),
     "human_delay.mode": _select("Simulated typing delay mode", "off", "typing", "fixed"),
     "logging.level": _select("Log level for agent.log", "DEBUG", "INFO", "WARNING", "ERROR"),
     "agent.service_tier": _select(

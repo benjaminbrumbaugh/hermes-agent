@@ -102,6 +102,23 @@ PREFLIGHT_COMPRESSION_STATUS_TEMPLATE = (
 IDLE_COMPACTION_STATUS_TEMPLATE = (
     "💤 Resumed after {idle_seconds}s idle — compacting ~{tokens:,} tokens before continuing."
 )
+TURN_END_COMPACTION_STATUS_TEMPLATE = (
+    "📦 Turn-end compression: ~{tokens:,} tokens >= {threshold:,} threshold. Compacting now so the next reply starts fast."
+)
+
+# ``compression.timing``: WHEN the threshold-triggered automatic compaction runs. Only the pass
+# moves; threshold, protections and every anti-thrash guard are shared with the preflight path.
+COMPACTION_TIMING_NEXT_TURN = "before_next_turn"
+COMPACTION_TIMING_TURN_END = "after_reply"
+COMPACTION_TIMING_CHOICES = (COMPACTION_TIMING_NEXT_TURN, COMPACTION_TIMING_TURN_END)
+
+
+def normalize_compaction_timing(value: Any) -> str:
+    """Config → canonical timing; anything unrecognised (typo, ``None``, legacy) is the default."""
+    text = str(value or "").strip().lower().replace("-", "_")
+    return text if text in COMPACTION_TIMING_CHOICES else COMPACTION_TIMING_NEXT_TURN
+
+
 COMPRESSION_RETRY_TOO_LARGE_STATUS_TEMPLATE = (
     "🗜️ Context too large (~{tokens:,} tokens) — compressing ({attempt}/{cap})..."
 )
@@ -130,6 +147,7 @@ ROUTINE_COMPRESSION_STATUS_SAMPLES = (
     PRE_API_COMPRESSION_STATUS_TEMPLATE.format(tokens=123456),
     PREFLIGHT_COMPRESSION_STATUS_TEMPLATE.format(tokens=120000, threshold=100000),
     IDLE_COMPACTION_STATUS_TEMPLATE.format(idle_seconds=3600, tokens=120000),
+    TURN_END_COMPACTION_STATUS_TEMPLATE.format(tokens=120000, threshold=100000),
     COMPRESSION_RETRY_TOO_LARGE_STATUS_TEMPLATE.format(tokens=250000, attempt=1, cap=3),
     COMPRESSION_RETRY_MESSAGES_STATUS_TEMPLATE.format(before=30, after=12),
     COMPRESSION_RETRY_TOKENS_STATUS_TEMPLATE.format(before=250000, after=120000),

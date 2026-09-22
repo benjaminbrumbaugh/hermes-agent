@@ -1,22 +1,26 @@
-"""Turn-start compaction for ``build_turn_context`` plus the small compression-attempt
-helpers shared with the pre-API / post-tool sites in ``turn_preflight``.
+"""Turn-boundary compaction for ``build_turn_context`` / ``finalize_turn`` plus the small
+compression-attempt helpers shared with the pre-API / post-tool sites in ``turn_preflight``.
 
-Three passes, in order: idle-triggered compaction (opt-in, wall-clock gap), preflight
+Turn start, in order: idle-triggered compaction (opt-in, wall-clock gap), preflight
 context compression (token threshold), and the uncompressed-session overflow-warning
 re-arm. ``run_turn_start_compaction`` mutates ``agent`` exactly as the inline prologue
-did and returns a ``CompactionOutcome``. Predicates/estimators that tests patch on
-``agent.turn_context`` are imported lazily through that module so patches intercept."""
+did and returns a ``CompactionOutcome``. Turn end: ``run_turn_end_compaction`` is the
+opt-in ``compression.timing: after_reply`` pass that pays the threshold compaction right
+after a completed reply instead of at the start of the next user turn. Predicates /
+estimators that tests patch on ``agent.turn_context`` are imported lazily through that
+module so patches intercept."""
 
 from __future__ import annotations
 
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from agent.context_engine import automatic_compaction_status_message
 from agent.conversation_compression import (
-    IDLE_COMPACTION_STATUS_TEMPLATE, PREFLIGHT_COMPRESSION_STATUS_TEMPLATE,
+    COMPACTION_TIMING_NEXT_TURN, COMPACTION_TIMING_TURN_END, IDLE_COMPACTION_STATUS_TEMPLATE,
+    PREFLIGHT_COMPRESSION_STATUS_TEMPLATE, TURN_END_COMPACTION_STATUS_TEMPLATE,
     compression_skipped_due_to_lock, conversation_history_after_compression,
 )
 
@@ -503,3 +507,99 @@ def _rearm_uncompressed_overflow_warn(
     )
     if _uncompressed_tokens <= _ctx_len:
         _clear_overflow_warn(agent)
+
+
+# ── Turn-end pass (``compression.timing: after_reply``) ──
+
+
+def turn_end_compaction_enabled(agent: Any) -> bool:
+    """Whether this agent pays the threshold compaction at turn end instead of next-turn preflight.
+
+    Subagents and persistence-isolated forks (background review) never do: their transcript
+    is throwaway or owned by the parent, so an eager pass only burns an aux-LLM call."""
+    return (
+        getattr(agent, "compression_timing", COMPACTION_TIMING_NEXT_TURN) == COMPACTION_TIMING_TURN_END
+        and bool(getattr(agent, "compression_enabled", False))
+        and not getattr(agent, "_persist_disabled", False)
+        and int(getattr(agent, "_delegate_depth", 0) or 0) == 0
+    )
+
+
+def run_turn_end_compaction(
+    agent: Any, *, messages: List[Dict[str, Any]], conversation_history: Optional[List[Dict[str, Any]]],
+    system_message: Optional[str], user_message: Any, effective_task_id: str,
+) -> Tuple[bool, Optional[List[Dict[str, Any]]]]:
+    """Threshold-triggered compaction right after a completed reply (opt-in).
+
+    Same trigger and guards as the next-turn preflight (``_preflight_compression``): the real
+    provider usage from the reply that just landed decides (an anchored figure never defers),
+    the failure cooldown / breaker / lock gates inside ``_compress_context`` still apply, and the
+    codex app-server native route is left alone. Runs from ``finalize_turn`` AFTER the turn's own
+    persist so the reply is durable before any archive; ``_compress_context`` commits the same
+    in-place archive (or rotation) as every other automatic path, and the caller re-persists.
+
+    Returns ``(compacted, flush_baseline)``. ``compacted`` is True only after a real rewrite;
+    ``messages`` is then rebuilt in place so every holder of the list object (the host's
+    ``result["messages"]``, the gateway's ``_session_messages``) sees the compacted set, and
+    ``flush_baseline`` is what ``_persist_session`` must diff against (``None`` after a rotation
+    so the child gets the full compacted list — see ``conversation_history_after_compression``).
+    """
+    from agent import turn_context as _tc
+
+    _compressor = agent.context_compressor
+    skipped = (False, conversation_history)
+    if _codex_native_auto_compaction(agent):
+        return skipped
+    if not _tc._should_run_preflight_estimate(
+        messages, _compressor.protect_first_n, _compressor.protect_last_n, _compressor.threshold_tokens,
+    ):
+        return skipped
+    active_system_prompt = getattr(agent, "_cached_system_prompt", None) or ""
+    _tokens = _tc._preflight_request_tokens(agent, messages, active_system_prompt)
+    # A rough figure over threshold defers to real usage exactly as at turn start; the reply that
+    # just completed normally re-anchored it, so this only skips usage-less / just-compacted states.
+    if not getattr(agent, "_request_pressure_anchored", False) and getattr(
+        _compressor, "should_defer_preflight_to_real_usage", lambda _tokens: False
+    )(_tokens):
+        return skipped
+    if getattr(_compressor, "get_active_compression_failure_cooldown", lambda: None)():
+        return skipped
+    if not _compressor.should_compress(_tokens):
+        return skipped
+
+    logger.info(
+        "Turn-end compression: ~%s tokens >= %s threshold (model %s, ctx %s, session %s)",
+        f"{_tokens:,}", f"{_compressor.threshold_tokens:,}", agent.model,
+        f"{_compressor.context_length:,}", agent.session_id or "none",
+    )
+    _status = automatic_compaction_status_message(
+        _compressor,
+        phase="turn_end",
+        default_message=TURN_END_COMPACTION_STATUS_TEMPLATE.format(
+            tokens=_tokens, threshold=_compressor.threshold_tokens
+        ),
+        approx_tokens=_tokens,
+        threshold_tokens=_compressor.threshold_tokens,
+        context_length=_compressor.context_length,
+        model=agent.model,
+    )
+    if _status:
+        agent._emit_status(_status)
+    _clear_overflow_warn(agent)
+    compacted, _prompt = agent._compress_context(
+        messages, system_message, approx_tokens=_tokens, task_id=effective_task_id,
+    )
+    # ``_compress_context`` returns the INPUT list object on every skip path (lock held, breaker,
+    # no summarizable middle): nothing to re-baseline then. One pass only — the next turn's
+    # preflight re-checks and takes over if the threshold is still crossed.
+    if compacted is messages or compression_skipped_due_to_lock(agent):
+        return skipped
+    logger.info(
+        "Turn-end compression: %d -> %d messages (session %s)",
+        len(messages), len(compacted), agent.session_id or "none",
+    )
+    messages[:] = compacted
+    _reset_retry_state_after_compaction(agent)
+    # The persist-override row must follow this turn's user message into the rebuilt list.
+    _reanchor(agent, messages, user_message)
+    return True, conversation_history_after_compression(agent, messages, conversation_history)

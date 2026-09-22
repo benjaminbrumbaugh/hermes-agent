@@ -304,6 +304,26 @@ def _micro_compact_after_turn(agent, messages, final_response, logger) -> None:
         logger.info("Micro-compaction failed: %s", _mc_err)
 
 
+def _compact_after_turn(
+    agent, messages, conversation_history, system_message, user_message, effective_task_id,
+) -> None:
+    """Opt-in ``compression.timing: after_reply``: run the threshold compaction now, on the
+    just-persisted transcript, and re-persist the compacted set so the next turn starts on it.
+
+    Mutates ``messages`` in place (the host's ``result["messages"]`` and the gateway's
+    ``_session_messages`` are this object). A no-op pass leaves persistence untouched."""
+    from agent.turn_context_compaction import run_turn_end_compaction, turn_end_compaction_enabled
+
+    if not turn_end_compaction_enabled(agent):
+        return
+    compacted, baseline = run_turn_end_compaction(
+        agent, messages=messages, conversation_history=conversation_history,
+        system_message=system_message, user_message=user_message, effective_task_id=effective_task_id,
+    )
+    if compacted:
+        agent._persist_session(messages, baseline)
+
+
 def _log_turn_exit(agent, messages, final_response, api_call_count, _turn_exit_reason, interrupted, logger) -> None:
     """Always INFO so agent.log captures WHY every turn ended; WARNING when the last
     message is a tool result (the "just stops" scenario)."""
@@ -448,9 +468,12 @@ def finalize_turn(
     agent, *, final_response, api_call_count, interrupted, failed, messages, conversation_history,
     effective_task_id, turn_id, user_message, original_user_message, _should_review_memory,
     _turn_exit_reason, _pending_verification_response=None,
-    _pending_verification_response_previewed=False,
+    _pending_verification_response_previewed=False, system_message=None,
 ):
-    """Run the post-loop finalization and return the turn ``result`` dict."""
+    """Run the post-loop finalization and return the turn ``result`` dict.
+
+    ``system_message`` (the caller's ephemeral prompt, from the loop state) only feeds the opt-in
+    turn-end compaction pass, which rebuilds the cached system prompt at its commit boundary."""
     from agent.conversation_loop import logger
 
     final_response, _turn_exit_reason, preserved_verification_fallback = _resolve_budget_fallback(
@@ -514,6 +537,17 @@ def finalize_turn(
         agent._persist_session(messages, conversation_history)
 
     _guarded_cleanup("persist_session", _persist_step, _cleanup_errors, logger)
+
+    # Opt-in turn-end compaction runs AFTER the turn is durable (its own guarded step, so a
+    # summarizer failure can never cost the persisted reply) and re-persists the compacted set.
+    if not interrupted and not failed and final_response:
+        _guarded_cleanup(
+            "turn_end_compaction",
+            lambda: _compact_after_turn(
+                agent, messages, conversation_history, system_message, user_message, effective_task_id,
+            ),
+            _cleanup_errors, logger,
+        )
 
     # Keep the gateway's separate in-memory history snapshot current even on
     # cleanup error, so a later prompt isn't sent with a pre-turn snapshot.
