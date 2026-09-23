@@ -103,7 +103,7 @@ IDLE_COMPACTION_STATUS_TEMPLATE = (
     "💤 Resumed after {idle_seconds}s idle — compacting ~{tokens:,} tokens before continuing."
 )
 TURN_END_COMPACTION_STATUS_TEMPLATE = (
-    "📦 Turn-end compression: ~{tokens:,} tokens >= {threshold:,} threshold. Compacting now so the next reply starts fast."
+    "📦 Turn-end compression: ~{tokens:,} tokens >= {threshold:,} threshold."
 )
 
 # ``compression.timing``: WHEN the threshold-triggered automatic compaction runs. Only the pass

@@ -643,7 +643,7 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
     enabled: 'Summarize older context when conversations get large.',
     codexGpt55Autoraise: 'Raise compression to 85% for supported ChatGPT Codex OAuth models.',
     timing:
-      'Before next turn: summarize when you send your next message (free if you never do). After reply: summarize right after each reply so your next one starts immediately — costs a summary pass per crossing even if you never continue.'
+      'Before next turn: summarize when you send your next message (free if you never do). After reply: summarize right after each reply so the next one starts immediately (paid even if you never continue).'
   },
   auxiliary: {
     compression: {
