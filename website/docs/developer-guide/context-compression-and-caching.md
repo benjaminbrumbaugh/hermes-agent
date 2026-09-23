@@ -141,13 +141,9 @@ never-estimate acceptance. The following policies remain unchanged:
 - Opt-in idle compaction uses its own floor/cooldown and can act on unanchored
   pressure; it does not share the threshold gate's one-request wait.
 - Opt-in turn-end compaction (`compression.timing: after_reply`,
-  `agent/turn_context_compaction.py::run_turn_end_compaction`) reuses the preflight
-  trigger verbatim — real usage from the reply that just landed anchors it — and runs from
-  `finalize_turn` AFTER the turn's own persist, as its own guarded step, then re-persists the
-  compacted set. It rebuilds `messages` in place so `result["messages"]` and the gateway's
-  cached `_session_messages` see the compacted transcript; a skipped/failed pass leaves the
-  next turn's preflight to take over. Never runs for interrupted/failed turns, subagents, or
-  persistence-isolated forks.
+  `turn_context_compaction.run_turn_end_compaction`) reuses the preflight trigger and runs
+  from `finalize_turn` after the turn's own persist; a skipped or failed pass leaves the next
+  turn's preflight to take over.
 - Pre-agent gateway hygiene retains its rough-history fallback and hard-message
   safety valve. The replay harness's `gateway` shape reloads transcript dictionaries;
   it does **not** exercise that separate hygiene policy.
@@ -271,7 +267,7 @@ auxiliary:
 | `min_tail_user_messages` | `1` | ≥1 | Minimum number of REAL (actionable) user messages guaranteed to survive in the uncompressed tail. `1` = the existing single last-user anchor (behavior-preserving default). Raise to e.g. `3` to keep the last 3 real user turns verbatim even when bulky tool outputs fill the tail token budget. Blank platform echoes, compaction handoffs, and synthetic continuation rows never count toward N. The guarantee wins over the tail token budget — the tail may exceed the budget when the anchor pulls the cut back |
 | `protect_first_n` | `3` | (hardcoded) | System prompt + first exchange always preserved |
 | `idle_compact_after_seconds` | `0` | ≥0 seconds | Opt-in: compact up front when a session resumes after this many seconds idle (0 = disabled). Skips when context ≤ threshold × target_ratio; honors cooldown/anti-thrash/lock guards |
-| `timing` | `before_next_turn` | `before_next_turn`, `after_reply` | When the threshold compaction runs. `after_reply` runs it in `finalize_turn` right after a completed reply (same trigger and guards as the preflight pass; one extra summary pass per crossing if the session never continues) so the next turn starts on a compacted transcript instead of waiting on the summarizer |
+| `timing` | `before_next_turn` | `before_next_turn`, `after_reply` | When the threshold compaction runs: start of the next turn, or right after each reply (one extra summary pass per crossing if the session never continues) |
 | `codex_gpt55_autoraise` | `true` | bool | Raise the trigger to 85% for gpt-5.4/5.5/5.6 and gpt-6 Astra on the ChatGPT Codex OAuth route (see below). Set `false` to keep the global `threshold` |
 | `codex_gpt55_autoraise_notice` | `true` | bool | Show the one-time Codex gpt-5.5 autoraise notice. Set `false` to keep the 85% autoraise but suppress the banner |
 | `codex_app_server_auto` | `native` | `native`, `hermes`, `off` | Thread-compaction mode for Codex app-server sessions (see below) |

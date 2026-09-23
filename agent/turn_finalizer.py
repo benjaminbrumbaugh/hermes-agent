@@ -307,11 +307,8 @@ def _micro_compact_after_turn(agent, messages, final_response, logger) -> None:
 def _compact_after_turn(
     agent, messages, conversation_history, system_message, user_message, effective_task_id,
 ) -> None:
-    """Opt-in ``compression.timing: after_reply``: run the threshold compaction now, on the
-    just-persisted transcript, and re-persist the compacted set so the next turn starts on it.
-
-    Mutates ``messages`` in place (the host's ``result["messages"]`` and the gateway's
-    ``_session_messages`` are this object). A no-op pass leaves persistence untouched."""
+    """``compression.timing: after_reply``: compact the just-persisted transcript in place and
+    re-persist it so the next turn starts on the compacted set."""
     from agent.turn_context_compaction import run_turn_end_compaction, turn_end_compaction_enabled
 
     if not turn_end_compaction_enabled(agent):
@@ -470,10 +467,7 @@ def finalize_turn(
     _turn_exit_reason, _pending_verification_response=None,
     _pending_verification_response_previewed=False, system_message=None,
 ):
-    """Run the post-loop finalization and return the turn ``result`` dict.
-
-    ``system_message`` (the caller's ephemeral prompt, from the loop state) only feeds the opt-in
-    turn-end compaction pass, which rebuilds the cached system prompt at its commit boundary."""
+    """Run the post-loop finalization and return the turn ``result`` dict."""
     from agent.conversation_loop import logger
 
     final_response, _turn_exit_reason, preserved_verification_fallback = _resolve_budget_fallback(
@@ -538,8 +532,7 @@ def finalize_turn(
 
     _guarded_cleanup("persist_session", _persist_step, _cleanup_errors, logger)
 
-    # Opt-in turn-end compaction runs AFTER the turn is durable (its own guarded step, so a
-    # summarizer failure can never cost the persisted reply) and re-persists the compacted set.
+    # After the turn is durable, as its own guarded step: a summarizer failure never costs the reply.
     if not interrupted and not failed and final_response:
         _guarded_cleanup(
             "turn_end_compaction",

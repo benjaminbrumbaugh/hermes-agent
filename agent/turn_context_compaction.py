@@ -513,10 +513,7 @@ def _rearm_uncompressed_overflow_warn(
 
 
 def turn_end_compaction_enabled(agent: Any) -> bool:
-    """Whether this agent pays the threshold compaction at turn end instead of next-turn preflight.
-
-    Subagents and persistence-isolated forks (background review) never do: their transcript
-    is throwaway or owned by the parent, so an eager pass only burns an aux-LLM call."""
+    """Opt-in and meaningful here: subagents and persistence-isolated forks never continue."""
     return (
         getattr(agent, "compression_timing", COMPACTION_TIMING_NEXT_TURN) == COMPACTION_TIMING_TURN_END
         and bool(getattr(agent, "compression_enabled", False))
@@ -529,20 +526,12 @@ def run_turn_end_compaction(
     agent: Any, *, messages: List[Dict[str, Any]], conversation_history: Optional[List[Dict[str, Any]]],
     system_message: Optional[str], user_message: Any, effective_task_id: str,
 ) -> Tuple[bool, Optional[List[Dict[str, Any]]]]:
-    """Threshold-triggered compaction right after a completed reply (opt-in).
+    """Threshold compaction right after a completed reply (``compression.timing: after_reply``).
 
-    Same trigger and guards as the next-turn preflight (``_preflight_compression``): the real
-    provider usage from the reply that just landed decides (an anchored figure never defers),
-    the failure cooldown / breaker / lock gates inside ``_compress_context`` still apply, and the
-    codex app-server native route is left alone. Runs from ``finalize_turn`` AFTER the turn's own
-    persist so the reply is durable before any archive; ``_compress_context`` commits the same
-    in-place archive (or rotation) as every other automatic path, and the caller re-persists.
-
-    Returns ``(compacted, flush_baseline)``. ``compacted`` is True only after a real rewrite;
-    ``messages`` is then rebuilt in place so every holder of the list object (the host's
-    ``result["messages"]``, the gateway's ``_session_messages``) sees the compacted set, and
-    ``flush_baseline`` is what ``_persist_session`` must diff against (``None`` after a rotation
-    so the child gets the full compacted list — see ``conversation_history_after_compression``).
+    Same trigger and guards as ``_preflight_compression``; the caller runs it after the turn's
+    own persist and re-persists. Returns ``(compacted, flush_baseline)`` — on a real rewrite
+    ``messages`` is rebuilt in place (the host and gateway hold that list object) and the
+    baseline is what ``_persist_session`` diffs against (``None`` after a rotation).
     """
     from agent import turn_context as _tc
 
@@ -589,9 +578,8 @@ def run_turn_end_compaction(
     compacted, _prompt = agent._compress_context(
         messages, system_message, approx_tokens=_tokens, task_id=effective_task_id,
     )
-    # ``_compress_context`` returns the INPUT list object on every skip path (lock held, breaker,
-    # no summarizable middle): nothing to re-baseline then. One pass only — the next turn's
-    # preflight re-checks and takes over if the threshold is still crossed.
+    # ``_compress_context`` returns the input list on every skip path; the next turn's preflight
+    # takes over then.
     if compacted is messages or compression_skipped_due_to_lock(agent):
         return skipped
     logger.info(

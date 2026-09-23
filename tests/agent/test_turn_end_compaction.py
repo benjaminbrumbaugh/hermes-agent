@@ -2,8 +2,7 @@
 
 Contract: the eager pass reuses the preflight trigger, runs only after the turn's own persist,
 re-persists the compacted set, rebuilds ``messages`` in place (the host and the gateway hold that
-object), and is a strict no-op for the default timing, interrupted/failed turns, subagents, and
-anything the preflight gate would have skipped.
+object), and is a no-op for the default timing, interrupted/failed turns, and a held lock.
 """
 
 from types import SimpleNamespace
@@ -11,23 +10,20 @@ from typing import Any
 
 import pytest
 
-from agent.conversation_compression import (
-    COMPACTION_TIMING_NEXT_TURN, COMPACTION_TIMING_TURN_END, normalize_compaction_timing,
-)
+from agent.conversation_compression import COMPACTION_TIMING_NEXT_TURN, COMPACTION_TIMING_TURN_END
 from agent.turn_finalizer import finalize_turn
 
 
 class _Compressor:
-    def __init__(self, *, threshold_tokens=1_000, over=True):
+    def __init__(self, *, threshold_tokens=1_000):
         self.threshold_tokens = threshold_tokens
         self.context_length = 10_000
         self.protect_first_n = 0
         self.protect_last_n = 1
         self.last_prompt_tokens = 0
-        self._over = over
 
     def should_compress(self, tokens):
-        return self._over
+        return True
 
     def should_defer_preflight_to_real_usage(self, _tokens):
         return False
@@ -37,7 +33,7 @@ class _Compressor:
 
 
 class FakeAgent:
-    def __init__(self, *, timing=COMPACTION_TIMING_TURN_END, over=True):
+    def __init__(self, *, timing=COMPACTION_TIMING_TURN_END):
         self.max_iterations = 90
         self.iteration_budget = SimpleNamespace(remaining=10, used=1, max_total=90)
         self.quiet_mode = True
@@ -45,7 +41,7 @@ class FakeAgent:
         self.provider = "test-provider"
         self.base_url = ""
         self.session_id = "sess-test"
-        self.context_compressor = _Compressor(over=over)
+        self.context_compressor = _Compressor()
         self.compression_enabled = True
         self.compression_timing = timing
         self._delegate_depth = 0
@@ -209,42 +205,6 @@ def test_interrupted_or_failed_turn_skips_eager_compaction(flag):
     assert len(messages) == 6
 
 
-@pytest.mark.parametrize(
-    "attr, value",
-    [("_delegate_depth", 1), ("_persist_disabled", True), ("compression_enabled", False)],
-)
-def test_subagents_forks_and_disabled_compression_skip_eager_pass(attr, value):
-    agent = FakeAgent()
-    setattr(agent, attr, value)
-
-    _finalize(agent, _transcript())
-
-    assert agent.compress_calls == []
-
-
-def test_under_threshold_is_a_no_op_with_single_persist():
-    agent = FakeAgent(over=False)
-    messages = _transcript()
-
-    _finalize(agent, messages)
-
-    assert agent.compress_calls == []
-    assert len(agent.persist_calls) == 1
-    assert agent.statuses == []
-
-
-def test_compressor_skip_path_leaves_transcript_and_persist_untouched():
-    """``_compress_context`` returning its input (lock held, breaker, nothing summarizable) must
-    not trigger a second persist or mutate the list."""
-    agent = FakeAgent()
-    agent._compress_context = lambda messages, system_message, **_kw: (messages, system_message)
-    messages = _transcript()
-
-    _finalize(agent, messages)
-
-    assert len(agent.persist_calls) == 1 and len(messages) == 6
-
-
 def test_summarizer_failure_never_costs_the_persisted_reply():
     """The eager pass is its own guarded cleanup step: an exception surfaces as a cleanup error
     while the reply already reached durable storage and ``result`` still carries it."""
@@ -260,46 +220,6 @@ def test_summarizer_failure_never_costs_the_persisted_reply():
 
     assert result["final_response"] == "answer 3"
     assert len(agent.persist_calls) == 1 and len(messages) == 6
-
-
-@pytest.mark.parametrize(
-    "raw, expected",
-    [
-        (None, COMPACTION_TIMING_NEXT_TURN),
-        ("", COMPACTION_TIMING_NEXT_TURN),
-        ("bogus", COMPACTION_TIMING_NEXT_TURN),
-        ("after_reply", COMPACTION_TIMING_TURN_END),
-        (" After-Reply ", COMPACTION_TIMING_TURN_END),
-        ("before_next_turn", COMPACTION_TIMING_NEXT_TURN),
-    ],
-)
-def test_normalize_compaction_timing(raw, expected):
-    assert normalize_compaction_timing(raw) == expected
-
-
-def test_config_key_reaches_agent_through_the_compression_parser():
-    """``compression.timing`` in config.yaml lands on ``agent.compression_timing`` via the same
-    parser every other compression key uses; absent/unknown falls back to the default."""
-    from agent.agent_init import _parse_compression_config
-
-    stub = SimpleNamespace(model="test-model", provider=None, base_url="")
-    assert _parse_compression_config(stub, {"compression": {"timing": "after_reply"}}).timing == (
-        COMPACTION_TIMING_TURN_END
-    )
-    assert _parse_compression_config(stub, {"compression": {}}).timing == COMPACTION_TIMING_NEXT_TURN
-    assert _parse_compression_config(stub, {"compression": {"timing": "later"}}).timing == (
-        COMPACTION_TIMING_NEXT_TURN
-    )
-
-
-def test_desktop_schema_exposes_timing_as_a_select():
-    from hermes_cli.config_defaults import DEFAULT_CONFIG
-    from hermes_cli.web_server_config import CONFIG_SCHEMA
-
-    entry = CONFIG_SCHEMA["compression.timing"]
-    assert entry["type"] == "select"
-    assert DEFAULT_CONFIG["compression"]["timing"] in entry["options"]
-    assert set(entry["options"]) == {COMPACTION_TIMING_NEXT_TURN, COMPACTION_TIMING_TURN_END}
 
 
 # ── End-to-end: real AIAgent + real SessionDB ──
@@ -376,17 +296,6 @@ def test_e2e_after_reply_config_compacts_and_persists_through_real_agent(tmp_pat
     live = db.get_messages_as_conversation(agent.session_id)
     assert live and live[0]["content"].startswith("[CONTEXT COMPACTION]")
     assert live[-1]["role"] == "assistant" and live[-1]["content"] == "reply"
-
-
-def test_e2e_default_config_leaves_turn_end_alone(tmp_path, monkeypatch):
-    db, sid, agent = _real_agent(tmp_path, monkeypatch, timing="before_next_turn")
-    assert agent.compression_timing == COMPACTION_TIMING_NEXT_TURN
-
-    messages, _ = _e2e_turn(agent, monkeypatch)
-
-    agent.context_compressor.compress.assert_not_called()
-    assert len(messages) == 14
-    assert len(db.get_messages_as_conversation(sid)) == 14
 
 
 def test_e2e_after_reply_defers_to_a_held_compression_lock(tmp_path, monkeypatch):

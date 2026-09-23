@@ -671,11 +671,7 @@ DEFAULT_CONFIG = {
         # already at/below threshold × target_ratio; honors the same cooldown/ anti-thrash/lock
         # guards. Example: 1800 = 30 min.
         "idle_compact_after_seconds": 0,
-        # When the threshold-triggered automatic compaction runs. before_next_turn (default): at
-        # the start of the next user turn, so a session that never continues pays nothing.
-        # after_reply: right after a completed reply, so the next turn starts on an already
-        # compacted transcript instead of waiting on the summarizer — costs one summary pass
-        # per crossing even when no further message ever comes. Same threshold/guards either way.
+        # When threshold compaction runs: "before_next_turn" (default) or "after_reply" (eager).
         "timing": "before_next_turn",
     },
     # Anthropic prompt caching (Claude via OpenRouter or native API). cache_ttl: "5m" | "1h"; other
