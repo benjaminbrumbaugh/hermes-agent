@@ -131,7 +131,6 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
     "display.busy_input_mode": _select("Input behavior while agent is running", "interrupt", "queue", "steer"),
     "approvals.mode": _select("Dangerous command approval mode", "manual", "smart", "off"),
     "context.engine": _select("Context management engine", "default", "custom"),
-    "compression.timing": _select("When threshold compaction runs", "before_next_turn", "after_reply"),
     "human_delay.mode": _select("Simulated typing delay mode", "off", "typing", "fixed"),
     "logging.level": _select("Log level for agent.log", "DEBUG", "INFO", "WARNING", "ERROR"),
     "agent.service_tier": _select(
