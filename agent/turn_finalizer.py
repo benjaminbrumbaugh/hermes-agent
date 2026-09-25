@@ -306,12 +306,13 @@ def _micro_compact_after_turn(agent, messages, final_response, logger) -> None:
 
 def _compact_after_turn(
     agent, messages, conversation_history, system_message, user_message, effective_task_id,
+    compression_attempts,
 ) -> None:
-    """``compression.timing: after_reply``: compact the just-persisted transcript in place and
-    re-persist it so the next turn starts on the compacted set."""
+    """Compact the just-persisted transcript in place and re-persist it so the next turn
+    starts on the compacted set instead of waiting on the summarizer."""
     from agent.turn_context_compaction import run_turn_end_compaction, turn_end_compaction_enabled
 
-    if not turn_end_compaction_enabled(agent):
+    if not turn_end_compaction_enabled(agent, compression_attempts):
         return
     compacted, baseline = run_turn_end_compaction(
         agent, messages=messages, conversation_history=conversation_history,
@@ -465,7 +466,7 @@ def finalize_turn(
     agent, *, final_response, api_call_count, interrupted, failed, messages, conversation_history,
     effective_task_id, turn_id, user_message, original_user_message, _should_review_memory,
     _turn_exit_reason, _pending_verification_response=None,
-    _pending_verification_response_previewed=False, system_message=None,
+    _pending_verification_response_previewed=False, system_message=None, compression_attempts=0,
 ):
     """Run the post-loop finalization and return the turn ``result`` dict."""
     from agent.conversation_loop import logger
@@ -538,6 +539,7 @@ def finalize_turn(
             "turn_end_compaction",
             lambda: _compact_after_turn(
                 agent, messages, conversation_history, system_message, user_message, effective_task_id,
+                compression_attempts,
             ),
             _cleanup_errors, logger,
         )

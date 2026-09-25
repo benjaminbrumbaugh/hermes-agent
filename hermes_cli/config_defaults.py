@@ -671,8 +671,6 @@ DEFAULT_CONFIG = {
         # already at/below threshold × target_ratio; honors the same cooldown/ anti-thrash/lock
         # guards. Example: 1800 = 30 min.
         "idle_compact_after_seconds": 0,
-        # When threshold compaction runs: "before_next_turn" (default) or "after_reply" (eager).
-        "timing": "before_next_turn",
     },
     # Anthropic prompt caching (Claude via OpenRouter or native API). cache_ttl: "5m" | "1h"; other
     # non-falsy values are ignored; falsy (false, null, "off", "disabled", "no", "none") disables

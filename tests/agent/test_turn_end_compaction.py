@@ -1,8 +1,8 @@
-"""``compression.timing: after_reply`` — threshold compaction at the END of a completed turn.
+"""Threshold compaction at the END of a completed turn.
 
-Contract: the eager pass reuses the preflight trigger, runs only after the turn's own persist,
+Contract: the turn-end pass reuses the preflight trigger, runs only after the turn's own persist,
 re-persists the compacted set, rebuilds ``messages`` in place (the host and the gateway hold that
-object), and is a no-op for the default timing, interrupted/failed turns, and a held lock.
+object), and is a no-op for interrupted/failed turns and a held lock.
 """
 
 from types import SimpleNamespace
@@ -10,7 +10,6 @@ from typing import Any
 
 import pytest
 
-from agent.conversation_compression import COMPACTION_TIMING_NEXT_TURN, COMPACTION_TIMING_TURN_END
 from agent.turn_finalizer import finalize_turn
 
 
@@ -33,7 +32,7 @@ class _Compressor:
 
 
 class FakeAgent:
-    def __init__(self, *, timing=COMPACTION_TIMING_TURN_END):
+    def __init__(self):
         self.max_iterations = 90
         self.iteration_budget = SimpleNamespace(remaining=10, used=1, max_total=90)
         self.quiet_mode = True
@@ -43,7 +42,7 @@ class FakeAgent:
         self.session_id = "sess-test"
         self.context_compressor = _Compressor()
         self.compression_enabled = True
-        self.compression_timing = timing
+        self.max_compression_attempts = 3
         self._delegate_depth = 0
         self._persist_disabled = False
         self._cached_system_prompt = "sys"
@@ -152,7 +151,7 @@ def _no_plugin_hooks(monkeypatch):
     monkeypatch.setattr("hermes_cli.plugins.invoke_hook", lambda *_a, **_kw: [])
 
 
-def test_after_reply_compacts_after_durable_persist_and_repersists():
+def test_compacts_after_durable_persist_and_repersists():
     """The reply is persisted FIRST, then the compacted set; the host's ``messages`` object is the
     compacted transcript so the next turn (and the gateway's cached history) starts on it."""
     agent = FakeAgent()
@@ -173,7 +172,7 @@ def test_after_reply_compacts_after_durable_persist_and_repersists():
     assert any("Turn-end compression" in s for s in agent.statuses)
 
 
-def test_after_reply_rotation_hands_full_compacted_list_to_persist():
+def test_rotation_hands_full_compacted_list_to_persist():
     """A rotated session (not in-place) persists with a ``None`` baseline so the child session
     receives the whole compacted transcript — the same contract as the preflight pass."""
     agent = FakeAgent()
@@ -182,16 +181,6 @@ def test_after_reply_rotation_hands_full_compacted_list_to_persist():
     _finalize(agent, _transcript())
 
     assert agent.persist_calls[1][1] is None
-
-
-def test_default_timing_never_compacts_at_turn_end():
-    agent = FakeAgent(timing=COMPACTION_TIMING_NEXT_TURN)
-    messages = _transcript()
-
-    _finalize(agent, messages)
-
-    assert agent.compress_calls == []
-    assert len(agent.persist_calls) == 1 and len(messages) == 6
 
 
 @pytest.mark.parametrize("flag", ["interrupted", "failed"])
@@ -225,16 +214,14 @@ def test_summarizer_failure_never_costs_the_persisted_reply():
 # ── End-to-end: real AIAgent + real SessionDB ──
 
 
-def _real_agent(tmp_path, monkeypatch, *, timing):
-    """Real ``AIAgent`` wired to a real ``SessionDB`` with ``compression.timing`` read from a
-    temp-``HERMES_HOME`` config.yaml through the same parser production uses."""
+def _real_agent(tmp_path, monkeypatch):
+    """Real ``AIAgent`` wired to a real ``SessionDB`` under a temp ``HERMES_HOME``."""
     from hermes_state import SessionDB
     from tests.agent.test_compression_concurrent_fork import _build_agent_with_db
 
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
-    (home / "config.yaml").write_text(f"compression:\n  timing: {timing}\n")
     monkeypatch.setattr("hermes_cli.plugins.invoke_hook", lambda *_a, **_kw: [])
     monkeypatch.setattr("agent.auxiliary_client.set_runtime_main", lambda *a, **k: None)
 
@@ -282,11 +269,10 @@ def _e2e_turn(agent, monkeypatch):
     return messages, result
 
 
-def test_e2e_after_reply_config_compacts_and_persists_through_real_agent(tmp_path, monkeypatch):
-    """config.yaml → parser → ``agent.compression_timing`` → finalize → real compressor call →
-    durable SessionDB rows hold the compacted transcript with the reply intact."""
-    db, sid, agent = _real_agent(tmp_path, monkeypatch, timing="after_reply")
-    assert agent.compression_timing == COMPACTION_TIMING_TURN_END
+def test_e2e_compacts_and_persists_through_real_agent(tmp_path, monkeypatch):
+    """finalize → real compressor call → durable SessionDB rows hold the compacted transcript
+    with the reply intact."""
+    db, sid, agent = _real_agent(tmp_path, monkeypatch)
 
     messages, result = _e2e_turn(agent, monkeypatch)
 
@@ -298,10 +284,10 @@ def test_e2e_after_reply_config_compacts_and_persists_through_real_agent(tmp_pat
     assert live[-1]["role"] == "assistant" and live[-1]["content"] == "reply"
 
 
-def test_e2e_after_reply_defers_to_a_held_compression_lock(tmp_path, monkeypatch):
+def test_e2e_defers_to_a_held_compression_lock(tmp_path, monkeypatch):
     """Another holder's per-session lock makes the eager pass a strict no-op — the reply is still
     persisted, nothing rotates, and the foreign lease is untouched."""
-    db, sid, agent = _real_agent(tmp_path, monkeypatch, timing="after_reply")
+    db, sid, agent = _real_agent(tmp_path, monkeypatch)
     assert db.try_acquire_compression_lock(sid, "external_holder") is True
 
     messages, _ = _e2e_turn(agent, monkeypatch)
