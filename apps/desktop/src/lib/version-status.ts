@@ -18,6 +18,8 @@ export interface VersionStatusCopy {
   commit: (sha: string) => string
   commitsBehind: (count: number, branch: string) => string
   desktopVersion: (version: string) => string
+  rebuild: string
+  rebuildBehind: (count: number) => string
   restart: string
   unknown: string
   update: string
@@ -32,6 +34,10 @@ export interface VersionStatusInput {
   behind?: number
   branch?: string
   copy: VersionStatusCopy
+  /** Client only: the checkout is current and the offer rebuilds the running
+   *  app from commits already on the branch — `behind` counts desktop
+   *  changes since the running build, not commits behind the remote. */
+  localRebuild?: boolean
   /** Remote mode: the client is one of two versions on screen, so it says so. */
   remote: boolean
   /** The apply reached the restart stage — labels `restart`, not `update`. */
@@ -61,6 +67,7 @@ export function resolveVersionStatus({
   behind = 0,
   branch,
   copy,
+  localRebuild,
   remote,
   restarting,
   sha = null,
@@ -76,6 +83,7 @@ export function resolveVersionStatus({
   // targets — the client statusbar item is how a shallow desktop install
   // learns it's stale at all.
   const available = behind > 0 || !!updateAvailable
+  const rebuild = client && !!localRebuild && available
 
   // A client with no version still identifies itself by sha; a backend can't.
   const named = version ?? (client ? sha : null) ?? copy.unknown
@@ -88,12 +96,23 @@ export function resolveVersionStatus({
 
   // Commits behind is the precise diff; `(update)` is the fallback for a
   // backend that knows it's stale but can't count (pip, non-git checkout).
-  const hint = busy ? '' : behind > 0 ? ` (+${behind})` : available ? ` (${copy.update})` : ''
+  // A local rebuild is not "behind the branch": name it as such rather than
+  // printing a (+N) that reads as unpulled remote commits.
+  const hint = busy
+    ? ''
+    : rebuild
+      ? ` (${copy.rebuild})`
+      : behind > 0
+        ? ` (+${behind})`
+        : available
+          ? ` (${copy.update})`
+          : ''
 
   const tooltip = [
     busy && (applyMessage || copy.updateInProgress),
-    !busy && behind > 0 && copy.commitsBehind(behind, (client ? branch : 'main') || '...'),
-    !busy && behind <= 0 && available && copy.update,
+    !busy && rebuild && (behind > 0 ? copy.rebuildBehind(behind) : copy.rebuild),
+    !busy && !rebuild && behind > 0 && copy.commitsBehind(behind, (client ? branch : 'main') || '...'),
+    !busy && !rebuild && behind <= 0 && available && copy.update,
     version && (client ? copy.desktopVersion(version) : copy.backendVersion(version)),
     client && sha && copy.commit(sha),
     client && branch && copy.branch(branch)

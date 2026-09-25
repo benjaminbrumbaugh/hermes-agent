@@ -107,7 +107,11 @@ function AppUpdatesSettings({ includeUninstall }: { includeUninstall: boolean })
     statusLine = a.installing
     statusTone = 'available'
   } else if (updateAvailable) {
-    statusLine = behind > 0 ? a.updateReady(behind) : a.updateReadyUnknown
+    statusLine = status?.localRebuild
+      ? a.rebuildReady(behind)
+      : behind > 0
+        ? a.updateReady(behind)
+        : a.updateReadyUnknown
     statusTone = 'available'
   } else if (status) {
     statusLine = a.onLatest

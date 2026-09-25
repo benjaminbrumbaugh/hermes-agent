@@ -22,6 +22,15 @@ describe('resolveVersionStatus', () => {
     expect(status.unknown).toBe(false)
   })
 
+  it('names a local rebuild instead of counting commits behind the branch', () => {
+    const status = client({ behind: 2, branch: 'main', localRebuild: true, sha: 'abc1234', version: '0.4.2' })
+
+    expect(status.label).toBe(`v0.4.2 (${copy.rebuild})`)
+    expect(status.hasUpdate).toBe(true)
+    expect(status.tooltip).toContain(copy.rebuildBehind(2))
+    expect(status.tooltip).not.toContain('behind main')
+  })
+
   it('appends the commit diff when the client is behind', () => {
     const status = client({ behind: 12, branch: 'main', version: '0.4.2' })
 

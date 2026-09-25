@@ -582,6 +582,7 @@ function CommandPaletteBody({ onExited }: { onExited: () => void }) {
       applying: apply.applying || apply.stage === 'restart',
       behind: status?.behind ?? 0,
       copy: t.shell.statusbar,
+      localRebuild: backend ? undefined : status?.localRebuild,
       remote: backend,
       restarting: apply.stage === 'restart',
       sha: status?.currentSha?.slice(0, 7) ?? null,

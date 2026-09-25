@@ -5,7 +5,14 @@ import { dirname, join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { detectBundleSkew, isFallbackCommit, type RunGit, RUNTIME_PATHS } from './bundle-skew'
+import {
+  detectBundleSkew,
+  foldLocalRebuildIntoStatus,
+  isFallbackCommit,
+  type RemoteUpdateStatus,
+  type RunGit,
+  RUNTIME_PATHS
+} from './bundle-skew'
 
 const REPO = '/repo'
 const STAMP = { commit: 'a'.repeat(40), source: 'ci' }
@@ -316,5 +323,69 @@ describe('detectBundleSkew against a real git repo', () => {
     const result = await detectBundleSkew({ commit: base, source: 'local' }, runGit, repoRoot)
 
     expect(result).toEqual({ desktopCommitsBehind: null, outOfSync: false })
+  })
+})
+
+// The Updates flow only compares HEAD against the remote tip, so a PR folded
+// onto the branch LOCALLY reads as "You're all set" while the app on disk is
+// a build behind. `hermes update`'s already-up-to-date path rebuilds from the
+// stamp; this fold is what makes the UI offer it.
+describe('foldLocalRebuildIntoStatus', () => {
+  const HEAD = 'c'.repeat(40)
+  const current: RemoteUpdateStatus = { behind: 0, updateAvailable: false, targetSha: HEAD, commits: [] }
+  const commit = { sha: 'd'.repeat(40), summary: 'fix(desktop): folded PR', author: 'me', at: 1 }
+
+  it('turns a current checkout with a stale bundle into a rebuild offer', async () => {
+    const status = await foldLocalRebuildIntoStatus(current, {
+      currentSha: HEAD,
+      listCommits: async () => [commit],
+      skew: async () => ({ desktopCommitsBehind: 1, outOfSync: true })
+    })
+
+    expect(status).toEqual({ behind: 1, updateAvailable: true, localRebuild: true, targetSha: HEAD, commits: [commit] })
+  })
+
+  it('leaves a current checkout alone when the bundle matches it', async () => {
+    let listed = false
+
+    const status = await foldLocalRebuildIntoStatus(current, {
+      currentSha: HEAD,
+      listCommits: async () => {
+        listed = true
+
+        return [commit]
+      },
+      skew: async () => ({ desktopCommitsBehind: 0, outOfSync: false })
+    })
+
+    expect(status).toBe(current)
+    expect(listed).toBe(false)
+  })
+
+  it('never overrides a remote update or a failed check', async () => {
+    const skew = async () => ({ desktopCommitsBehind: 3, outOfSync: true })
+    const remoteUpdate = { behind: 4, updateAvailable: true, targetSha: 'e'.repeat(40), commits: [] }
+    const unknownCount = { behind: null, updateAvailable: true, targetSha: 'e'.repeat(40), commits: [] }
+    const failed = { error: 'fetch-failed', message: 'api.github.com: 403' }
+
+    for (const remote of [remoteUpdate, unknownCount, failed]) {
+      expect(await foldLocalRebuildIntoStatus(remote, { currentSha: HEAD, listCommits: async () => [], skew })).toBe(
+        remote
+      )
+    }
+  })
+
+  it('still offers the rebuild when the changelog cannot be listed', async () => {
+    const status = await foldLocalRebuildIntoStatus(current, {
+      currentSha: HEAD,
+      listCommits: async () => {
+        throw new Error('git log failed')
+      },
+      skew: async () => ({ desktopCommitsBehind: 2, outOfSync: true })
+    })
+
+    expect(status.localRebuild).toBe(true)
+    expect(status.updateAvailable).toBe(true)
+    expect(status.commits).toEqual([])
   })
 })

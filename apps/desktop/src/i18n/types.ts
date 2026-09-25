@@ -803,6 +803,7 @@ export interface Translations {
       tapCheck: string
       updateReady: (count: number) => string
       updateReadyUnknown: string
+      rebuildReady: (count: number) => string
       lastChecked: (age: string) => string
       justNowSuffix: string
       automaticUpdates: string
@@ -2863,6 +2864,8 @@ export interface Translations {
     availableTitleBackend: string
     availableBodyBackend: string
     availableBodyNoChangelog: string
+    rebuildTitle: string
+    rebuildBody: string
     updateNow: string
     maybeLater: string
     moreChanges: (count: number) => string
@@ -3215,6 +3218,8 @@ export interface Translations {
       update: string
       updateInProgress: string
       commitsBehind: (count: number, branch: string) => string
+      rebuildBehind: (count: number) => string
+      rebuild: string
       desktopVersion: (version: string) => string
       backendVersion: (version: string) => string
       clientLabel: (version: string) => string

@@ -191,3 +191,34 @@ test('listLocalCommits renders the local gap newest-first in the parseCompare sh
   const failed = fakeGit({ log: { code: 128 } })
   assert.deepEqual(await listLocalCommits(failed.runGit, '/repo', SHA_A, SHA_B), [])
 })
+
+test('cache is invalidated by a rebuild: same HEAD, different running stamp', () => {
+  const cached = {
+    fetchedAt: 0,
+    currentSha: SHA_A,
+    branch: 'main',
+    stampCommit: SHA_A,
+    status: { behind: 1, updateAvailable: true, localRebuild: true }
+  }
+
+  assert.equal(cacheIsFresh(cached, { branch: 'main', currentSha: SHA_A, now: 1, stampCommit: SHA_A }), true)
+  // The rebuild relaunched the app on HEAD's stamp; the "rebuild available" offer must not survive it.
+  assert.equal(cacheIsFresh(cached, { branch: 'main', currentSha: SHA_A, now: 1, stampCommit: SHA_B }), false)
+  // A cache written before stamps were recorded is stale for a stamped app, and a
+  // caller that does not track stamps (no packaged bundle) keeps the old contract.
+  const unstamped = { ...cached, stampCommit: undefined }
+  assert.equal(cacheIsFresh(unstamped, { branch: 'main', currentSha: SHA_A, now: 1, stampCommit: SHA_A }), false)
+  assert.equal(cacheIsFresh(unstamped, { branch: 'main', currentSha: SHA_A, now: 1 }), true)
+})
+
+test('listLocalCommits scopes the log to the given paths', async () => {
+  const gitLog = fakeGit({ log: { code: 0, stdout: '' } })
+
+  await listLocalCommits(gitLog.runGit, '/repo', SHA_A, SHA_B, ['apps/desktop/src', 'apps/desktop/electron'])
+  assert.deepEqual(gitLog.calls[0].slice(-4), [`${SHA_A}..${SHA_B}`, '--', 'apps/desktop/src', 'apps/desktop/electron'])
+
+  // No paths: the log stays unscoped, exactly as before.
+  const unscoped = fakeGit({ log: { code: 0, stdout: '' } })
+  await listLocalCommits(unscoped.runGit, '/repo', SHA_A, SHA_B)
+  assert.equal(unscoped.calls[0].at(-1), `${SHA_A}..${SHA_B}`)
+})

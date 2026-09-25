@@ -97,7 +97,7 @@ import {
   BROWSER_WINDOW_WIDTH,
   buildBrowserWindowUrl
 } from './browser-windows'
-import { detectBundleSkew } from './bundle-skew'
+import { detectBundleSkew, foldLocalRebuildIntoStatus, RUNTIME_PATHS } from './bundle-skew'
 import { detectBundleSwap } from './bundle-swap'
 import { registerChatOnboardingWindow } from './chat-onboarding-window'
 import { discoverWithTeamFallback } from './cloud-discovery'
@@ -3363,16 +3363,32 @@ async function checkUpdates({ force = false }: { force?: boolean } = {}) {
   const cached = readUpdateCheckCache()
   const now = Date.now()
 
-  if (!force && cacheIsFresh(cached, { branch, currentSha, now })) {
+  const stampCommit = INSTALL_STAMP?.commit ?? null
+
+  if (!force && cacheIsFresh(cached, { branch, currentSha, now, stampCommit })) {
     return { ...cached.status, dirty: dirtyStr.length > 0, currentBranch }
   }
 
   branch = await resolveHealedBranch(updateRoot, branch)
   const slug = githubRepoSlug(originUrl)
 
-  const status = slug
+  const remote = slug
     ? await checkUpdatesViaApi({ slug, branch, currentSha, updateRoot })
     : await checkUpdatesViaLsRemote({ updateRoot, branch, currentSha })
+
+  // The checkout is current but the running renderer predates it: commits
+  // that landed locally (a PR folded onto the branch, a local merge) never
+  // move the remote tip, so the remote check alone says "all set" while the
+  // app on disk is a build behind. Offer the same Update flow — `hermes update`
+  // self-gates on the desktop build stamp, rebuilds, swaps, and relaunches.
+  const status = await foldLocalRebuildIntoStatus(remote, {
+    currentSha,
+    listCommits: () =>
+      INSTALL_STAMP
+        ? listLocalCommits(runGit, updateRoot, INSTALL_STAMP.commit, currentSha, RUNTIME_PATHS)
+        : Promise.resolve([]),
+    skew: detectRendererSkew
+  })
 
   const result = {
     supported: true,
@@ -3385,7 +3401,7 @@ async function checkUpdates({ force = false }: { force?: boolean } = {}) {
     ...status
   }
 
-  writeUpdateCheckCache({ fetchedAt: now, currentSha, branch, status: result })
+  writeUpdateCheckCache({ fetchedAt: now, currentSha, branch, stampCommit, status: result })
 
   return result
 }

@@ -41,6 +41,8 @@
  * Pure + injectable so it is testable without booting Electron or git.
  */
 
+import type { CompareCommit } from './update-api-check'
+
 export interface BundleSkewStamp {
   commit: string
   /** write-build-stamp.mjs source tag — 'fallback' means the commit is fake. */
@@ -129,5 +131,62 @@ export async function detectBundleSkew(
     return { desktopCommitsBehind: count, outOfSync: true }
   } catch {
     return NOT_STALE
+  }
+}
+
+/** The subset of the update-check result the local-rebuild fold reads and writes. */
+export interface RemoteUpdateStatus {
+  behind?: null | number
+  commits?: CompareCommit[]
+  error?: string
+  /** True when the update offer is a rebuild of local commits, not a remote pull. */
+  localRebuild?: boolean
+  targetSha?: string
+  updateAvailable?: boolean
+}
+
+export interface LocalRebuildDeps {
+  /** HEAD of the checkout — the "target" of a rebuild is the tree as it stands. */
+  currentSha: string
+  /** Runtime-path commits between the running stamp and HEAD, newest first. */
+  listCommits: () => Promise<CompareCommit[]>
+  skew: () => Promise<BundleSkewResult>
+}
+
+/**
+ * Turn a "checkout is current" remote answer into an update offer when the
+ * running app was built from an older commit of that same checkout.
+ *
+ * A PR folded onto the branch locally, a merge, a cherry-pick — none of them
+ * move the remote tip, so the remote check alone reports "all set" while the
+ * bundle on disk is a build behind. `hermes update` already handles exactly
+ * this on the already-up-to-date path (it self-gates on the desktop build
+ * stamp, rebuilds, installs, relaunches); this only makes the Updates UI
+ * offer it. A remote update, an error, or an unsupported check is left
+ * untouched — the pull path rebuilds anyway, and an error must stay an error.
+ */
+export async function foldLocalRebuildIntoStatus<S extends RemoteUpdateStatus>(
+  remote: S,
+  deps: LocalRebuildDeps
+): Promise<S> {
+  if (remote.error || remote.updateAvailable || (remote.behind ?? 0) > 0) {
+    return remote
+  }
+
+  const skew = await deps.skew()
+
+  if (!skew.outOfSync) {
+    return remote
+  }
+
+  const commits = await deps.listCommits().catch(() => [])
+
+  return {
+    ...remote,
+    behind: skew.desktopCommitsBehind,
+    commits,
+    localRebuild: true,
+    targetSha: deps.currentSha,
+    updateAvailable: true
   }
 }

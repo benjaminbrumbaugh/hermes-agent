@@ -281,7 +281,7 @@ function IdleView({
   // backend, not the local client — say so. When there are no commit rows to
   // show (e.g. pip/non-git backend), degrade to honest "no release notes" copy
   // instead of generic filler.
-  const { title, body } = resolveUpdateCopy({ target, shownItems, copy: u })
+  const { title, body } = resolveUpdateCopy({ target, shownItems, localRebuild: status.localRebuild, copy: u })
 
   return (
     <div className="grid gap-5 px-6 pb-6 pt-7 pr-8">

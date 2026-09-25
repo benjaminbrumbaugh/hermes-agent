@@ -737,6 +737,9 @@ export interface DesktopUpdateStatus {
   /** Backend only: the version string the backend reports for itself. */
   currentVersion?: string
   targetSha?: string
+  /** The checkout is current; the offer is a rebuild of the running app from
+   *  commits already on the branch (a PR folded in locally). */
+  localRebuild?: boolean
   commits?: DesktopUpdateCommit[]
   dirty?: boolean
   fetchedAt?: number

@@ -25,6 +25,9 @@ export interface CachedUpdateCheck {
   fetchedAt: number
   currentSha: string
   branch: string
+  /** Commit the running bundle was built from — a rebuild moves it, and a
+   *  cached "rebuild available" must not survive the rebuild it asked for. */
+  stampCommit?: null | string
   status: Record<string, unknown> & { error?: string }
 }
 
@@ -52,9 +55,20 @@ export function compareApiUrl(slug: string, currentSha: string, targetSha: strin
  */
 export function cacheIsFresh(
   cached: CachedUpdateCheck | null | undefined,
-  { branch, currentSha, now }: { branch: string; currentSha: string; now: number }
+  {
+    branch,
+    currentSha,
+    now,
+    stampCommit
+  }: { branch: string; currentSha: string; now: number; stampCommit?: null | string }
 ): boolean {
   if (!cached || cached.branch !== branch || cached.currentSha !== currentSha) {
+    return false
+  }
+
+  // A rebuild relaunches the app on a new stamp with HEAD unchanged; the
+  // cached "rebuild available" would otherwise stay on offer for a day.
+  if (stampCommit !== undefined && (cached.stampCommit ?? null) !== stampCommit) {
     return false
   }
 
@@ -246,10 +260,18 @@ export async function listLocalCommits(
   runGit: GitRunner,
   cwd: string,
   currentSha: string,
-  targetSha: string
+  targetSha: string,
+  paths: readonly string[] = []
 ): Promise<CompareCommit[]> {
   const log = await runGit(
-    ['log', '--reverse', '--date=iso-strict', '--pretty=%H%x1f%an%x1f%ad%x1f%s', `${currentSha}..${targetSha}`],
+    [
+      'log',
+      '--reverse',
+      '--date=iso-strict',
+      '--pretty=%H%x1f%an%x1f%ad%x1f%s',
+      `${currentSha}..${targetSha}`,
+      ...(paths.length ? ['--', ...paths] : [])
+    ],
     { cwd }
   )
 

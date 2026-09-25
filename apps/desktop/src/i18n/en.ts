@@ -983,6 +983,8 @@ export const en: Translations = {
       tapCheck: 'Tap "Check now" to look for updates.',
       updateReady: count => `A new update is ready (${count} change${count === 1 ? '' : 's'} included).`,
       updateReadyUnknown: 'A new update is ready.',
+      rebuildReady: count =>
+        `The running app is behind your branch (${count} desktop change${count === 1 ? '' : 's'}). Update to rebuild it.`,
       lastChecked: age => `Last checked ${age}`,
       justNowSuffix: ' · just now',
       automaticUpdates: 'Automatic updates',
@@ -3382,6 +3384,9 @@ export const en: Translations = {
     availableTitleBackend: 'Backend update available',
     availableBodyBackend: 'A newer version of the connected Hermes backend is ready to install.',
     availableBodyNoChangelog: 'A newer version is ready. Release notes aren’t available for this install type.',
+    rebuildTitle: 'Rebuild available',
+    rebuildBody:
+      'Changes on your branch aren’t in the running app yet. Updating rebuilds the desktop app and reopens it.',
     updateNow: 'Update now',
     maybeLater: 'Maybe later',
     moreChanges: count => `+ ${count} more change${count === 1 ? '' : 's'} included.`,
@@ -3765,6 +3770,8 @@ export const en: Translations = {
       update: 'update',
       updateInProgress: 'Update in progress',
       commitsBehind: (count, branch) => `${count} commit${count === 1 ? '' : 's'} behind ${branch}`,
+      rebuildBehind: count => `App build is ${count} desktop change${count === 1 ? '' : 's'} behind the checkout`,
+      rebuild: 'rebuild',
       desktopVersion: version => `Hermes Desktop v${version}`,
       backendVersion: version => `Backend v${version}`,
       clientLabel: version => `client v${version}`,
