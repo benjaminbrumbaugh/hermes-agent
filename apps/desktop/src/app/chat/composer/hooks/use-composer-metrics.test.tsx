@@ -1,8 +1,8 @@
 import { act, cleanup, render } from '@testing-library/react'
-import { useRef } from 'react'
+import { StrictMode, useRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { COMPOSER_HEIGHT_VAR, THREAD_SETTLED_CLEARANCE_VAR } from '@/app/chat/surface-vars'
+import { COMPOSER_HEIGHT_VAR, COMPOSER_SURFACE_HEIGHT_VAR, THREAD_SETTLED_CLEARANCE_VAR } from '@/app/chat/surface-vars'
 
 import { useComposerMetrics } from './use-composer-metrics'
 
@@ -12,7 +12,8 @@ let surfaceHeight = 72
 let syncMetrics: (() => void) | undefined
 
 vi.mock('@assistant-ui/react', () => ({
-  useAuiState: (select: (state: { composer: { text: string } }) => unknown) => select({ composer: { text: composerText } })
+  useAuiState: (select: (state: { composer: { text: string } }) => unknown) =>
+    select({ composer: { text: composerText } })
 }))
 
 vi.mock('@/hooks/use-resize-observer', () => ({
@@ -159,5 +160,24 @@ describe('useComposerMetrics', () => {
     view.rerender(<MetricsHarness running={false} surfaceKey="session-b" />)
 
     expect(surface?.style.getPropertyValue('--thread-settled-clearance-height')).toBe('0px')
+  })
+
+  it('republishes the measured heights after StrictMode replays the cleanup', () => {
+    dockHeight = 200
+    surfaceHeight = 120
+    mockComposerRects()
+
+    const { container } = render(
+      <StrictMode>
+        <MetricsHarness running={false} />
+      </StrictMode>
+    )
+
+    act(() => syncMetrics?.())
+
+    const surface = surfaceOf(container)
+
+    expect(surface.style.getPropertyValue(COMPOSER_HEIGHT_VAR)).toBe('200px')
+    expect(surface.style.getPropertyValue(COMPOSER_SURFACE_HEIGHT_VAR)).toBe('120px')
   })
 })

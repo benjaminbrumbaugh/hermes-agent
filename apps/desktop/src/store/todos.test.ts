@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TodoItem } from '@/lib/todos'
 
 import {
+  $retainedTodosBySession,
   $todoRevisionsBySession,
   $todosBySession,
   clearActiveSessionTodos,
@@ -40,6 +41,14 @@ describe('setSessionTodos finished-list auto-clear', () => {
     vi.advanceTimersByTime(5_000)
 
     expect($todosBySession.get().s1).toBeUndefined()
+  })
+
+  it('clears finished lists for session ids that collide with object prototype keys', () => {
+    setSessionTodos('toString', [todo('a', 'completed')])
+
+    vi.advanceTimersByTime(5_000)
+
+    expect(Object.hasOwn($todosBySession.get(), 'toString')).toBe(false)
   })
 
   it('cancels the pending clear when a new active list arrives', () => {
@@ -86,6 +95,11 @@ describe('clearActiveSessionTodos (turn-end cleanup)', () => {
     clearActiveSessionTodos('s1')
 
     expect($todosBySession.get().s1).toBeUndefined()
+  })
+
+  it('ignores an inherited prototype key on an empty map', () => {
+    expect(() => clearActiveSessionTodos('toString')).not.toThrow()
+    expect(Object.hasOwn($todosBySession.get(), 'toString')).toBe(false)
   })
 })
 
@@ -135,16 +149,21 @@ describe('revisioned snapshots', () => {
     expect($todosBySession.get().s1?.[0]?.id).toBe('active')
   })
 
-  it('does not replay a completed snapshot when an idle session is opened', () => {
-    const snapshot = { revision: 7, todos: [todo('finished', 'completed')] }
-
-    restoreSessionTodosFromSnapshot('s1', snapshot, false)
+  it('keeps an idle snapshot available for review without reviving live work', () => {
+    const saved = [todo('a', 'completed'), todo('b', 'in_progress')]
+    restoreSessionTodosFromSnapshot('s1', { revision: 7, todos: saved }, false)
 
     expect($todosBySession.get().s1).toBeUndefined()
-    expect($todoRevisionsBySession.get().s1).toBe(7)
+    expect($retainedTodosBySession.get().s1).toEqual(saved)
+
+    restoreSessionTodosFromSnapshot('s1', { revision: 6, todos: [todo('old', 'pending')] }, false)
+    expect($retainedTodosBySession.get().s1).toEqual(saved)
+
+    restoreSessionTodosFromSnapshot('s1', { revision: 8, todos: [] }, false)
+    expect($retainedTodosBySession.get().s1).toBeUndefined()
   })
 
-  it('preserves existing todos when an idle snapshot is stale', () => {
+  it('preserves existing live todos when an idle snapshot is stale', () => {
     setSessionTodos('s1', [todo('current', 'in_progress')], 7)
     const current = $todosBySession.get().s1
 

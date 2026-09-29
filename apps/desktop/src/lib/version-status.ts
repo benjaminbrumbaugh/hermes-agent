@@ -9,6 +9,7 @@
  */
 
 import type { UpdateTarget } from '@/lib/update-copy'
+import { shortVersion } from '@/lib/version-label'
 
 export interface VersionStatusCopy {
   backendLabel: (version: string) => string
@@ -20,6 +21,8 @@ export interface VersionStatusCopy {
   desktopVersion: (version: string) => string
   rebuild: string
   rebuildBehind: (count: number) => string
+  /** Stable channel: a newer release exists ("v0.21.0 is available"). */
+  releaseAvailable: (tag: string) => string
   restart: string
   unknown: string
   update: string
@@ -33,11 +36,21 @@ export interface VersionStatusInput {
   applyMessage?: string
   behind?: number
   branch?: string
+  /**
+   * The update channel of the target. 'main' (the default) speaks in
+   * commits behind a branch. 'stable' speaks in releases: the label hint
+   * is the update word, never a commit count, and the tooltip names the
+   * newer release tag. The channel changes the vocabulary only — the
+   * apply mechanism is the caller's concern.
+   */
+  channel?: 'stable' | 'main'
   copy: VersionStatusCopy
   /** Client only: the checkout is current and the offer rebuilds the running
    *  app from commits already on the branch — `behind` counts desktop
    *  changes since the running build, not commits behind the remote. */
   localRebuild?: boolean
+  /** Stable channel: the newest release tag, when the check found one. */
+  latestTag?: null | string
   /** Remote mode: the client is one of two versions on screen, so it says so. */
   remote: boolean
   /** The apply reached the restart stage — labels `restart`, not `update`. */
@@ -51,8 +64,6 @@ export interface VersionStatusInput {
 }
 
 export interface VersionStatusResult {
-  /** Secondary text beside the label — the commit sha, when it adds anything. */
-  detail?: string
   /** An update is waiting: callers tint the row with it. */
   hasUpdate: boolean
   label: string
@@ -66,15 +77,20 @@ export function resolveVersionStatus({
   applying,
   behind = 0,
   branch,
+  channel = 'main',
   copy,
   localRebuild,
+  latestTag = null,
   remote,
   restarting,
   sha = null,
   target,
   updateAvailable,
-  version = null
+  version: rawVersion = null
 }: VersionStatusInput): VersionStatusResult {
+  // The label names the distance past the release; the commit stays in the
+  // tooltip and the expanded version details.
+  const version: null | string = rawVersion && rawVersion !== 'unknown' ? shortVersion(rawVersion) : null
   const client = target === 'client'
   const busy = applying || restarting
   // updateAvailable covers every "behind but uncountable" shape: shallow
@@ -82,8 +98,9 @@ export function resolveVersionStatus({
   // SSH-official presence-only checks, and pip installs. It applies to BOTH
   // targets — the client statusbar item is how a shallow desktop install
   // learns it's stale at all.
+  const stable = channel === 'stable'
   const available = behind > 0 || !!updateAvailable
-  const rebuild = client && !!localRebuild && available
+  const rebuild = client && !stable && !!localRebuild && available
 
   // A client with no version still identifies itself by sha; a backend can't.
   const named = version ?? (client ? sha : null) ?? copy.unknown
@@ -94,15 +111,14 @@ export function resolveVersionStatus({
       ? copy.clientLabel(named)
       : (version && `v${version}`) || named
 
-  // Commits behind is the precise diff; `(update)` is the fallback for a
-  // backend that knows it's stale but can't count (pip, non-git checkout).
-  // A local rebuild is not "behind the branch": name it as such rather than
-  // printing a (+N) that reads as unpulled remote commits.
+  // Main channel: commits behind is the precise diff. Stable channel: a
+  // count of commits is the wrong vocabulary — a release is one step. A local
+  // rebuild is also not "behind the branch": name the rebuild instead.
   const hint = busy
     ? ''
     : rebuild
       ? ` (${copy.rebuild})`
-      : behind > 0
+      : !stable && behind > 0
         ? ` (+${behind})`
         : available
           ? ` (${copy.update})`
@@ -111,17 +127,19 @@ export function resolveVersionStatus({
   const tooltip = [
     busy && (applyMessage || copy.updateInProgress),
     !busy && rebuild && (behind > 0 ? copy.rebuildBehind(behind) : copy.rebuild),
-    !busy && !rebuild && behind > 0 && copy.commitsBehind(behind, (client ? branch : 'main') || '...'),
-    !busy && !rebuild && behind <= 0 && available && copy.update,
+    !busy && !rebuild && available && stable && latestTag && copy.releaseAvailable(latestTag),
+    !busy && !rebuild && !stable && behind > 0 && copy.commitsBehind(behind, (client ? branch : 'main') || '...'),
+    !busy && !rebuild && available && (stable ? !latestTag : behind <= 0) && copy.update,
     version && (client ? copy.desktopVersion(version) : copy.backendVersion(version)),
     client && sha && copy.commit(sha),
-    client && branch && copy.branch(branch)
+    // The branch line is main-channel vocabulary; a stable checkout sits on
+    // a tag, and naming a branch would contradict the release line.
+    client && !stable && branch && copy.branch(branch)
   ]
     .filter(Boolean)
     .join(' · ')
 
   return {
-    detail: client && version && sha && !busy && !remote ? sha : undefined,
     hasUpdate: !busy && available,
     label: busy ? `${base} · ${restarting ? copy.restart : copy.update}` : `${base}${hint}`,
     tooltip: tooltip || undefined,
