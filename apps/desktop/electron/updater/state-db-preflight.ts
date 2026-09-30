@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { hiddenWindowsChildOptions } from '../windows-child-options'
 
@@ -26,6 +28,7 @@ export function preflightStateDb({ python, script, home, log, launcher = null }:
     }
 
     const args: string[] = launcher ? ['--run-module', 'hermes_cli.backup_sqlite', home] : ['-I', '-S', script, home]
+    const timeout: number = stateDbPreflightTimeoutMs(stateDbBytes(home))
 
     // Node refuses direct .cmd execFile; an older published launcher can still
     // be one. Same fail-closed guard as the update check: shell:true would
@@ -44,7 +47,7 @@ export function preflightStateDb({ python, script, home, log, launcher = null }:
         : args,
       hiddenWindowsChildOptions({
         encoding: 'utf8',
-        timeout: 30_000,
+        timeout,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsVerbatimArguments: viaCmd
       })
@@ -59,4 +62,37 @@ export function preflightStateDb({ python, script, home, log, launcher = null }:
     log(`[updates] ${message}`)
     throw new Error(message, { cause: error })
   }
+}
+
+const MIN_PREFLIGHT_TIMEOUT_MS = 30_000
+const MAX_PREFLIGHT_TIMEOUT_MS = 15 * 60_000
+// SQLite's backup API on a laptop SSD moves a few hundred MB/s; a page-by-page
+// copy with a busy-check callback and a following quick_check lands well under
+// that. 100 MB/s leaves ~3x headroom for a loaded machine or a slower disk.
+const PREFLIGHT_BYTES_PER_SECOND = 100 * 1024 * 1024
+
+/**
+ * Snapshot deadline sized from the database: a fixed 30 s cap killed the
+ * copy of any state.db past ~10 GB, cancelling every update on that machine
+ * with ETIMEDOUT even though the snapshot itself was healthy.
+ */
+export function stateDbPreflightTimeoutMs(bytes: number): number {
+  const scaled: number = Math.ceil((Math.max(0, bytes) / PREFLIGHT_BYTES_PER_SECOND) * 1000) + MIN_PREFLIGHT_TIMEOUT_MS
+
+  return Math.min(MAX_PREFLIGHT_TIMEOUT_MS, scaled)
+}
+
+/** Main file plus WAL — the backup copies the checkpointed view of both. */
+function stateDbBytes(home: string): number {
+  let total = 0
+
+  for (const name of ['state.db', 'state.db-wal']) {
+    try {
+      total += fs.statSync(path.join(home, name)).size
+    } catch {
+      // missing file (fresh install, or no WAL yet) contributes nothing
+    }
+  }
+
+  return total
 }

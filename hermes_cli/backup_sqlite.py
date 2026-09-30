@@ -80,12 +80,24 @@ def _safe_copy_db(src: Path, dst: Path, *, timeout_seconds: float = 10.0) -> boo
         _close_quietly(conn)
 
 
+def _prune_orphaned_partials(home: Path, prefix: str, *, older_than_seconds: float = 20 * 60) -> None:
+    """Remove staging files a killed snapshot left behind (the caller's timeout SIGKILLs this
+    process mid-copy, so ``finally`` never runs); each orphan is a full copy of state.db.
+    Age-gated past any caller's deadline so a concurrent live snapshot's staging is left alone."""
+    cutoff = time.time() - older_than_seconds
+    for stale in home.glob(f"{prefix}*.partial*"):
+        with suppress(OSError):
+            if stale.stat().st_mtime < cutoff:
+                stale.unlink()
+
+
 def preflight_state_db(home: Path) -> dict:
     """Publish an emergency snapshot; do not prune recovery files on failure."""
     source = home / "state.db"
     if not source.exists():
         return {"path": None, "message": "state.db not found (fresh install?)"}
     prefix = "state.db.pre-update-emergency-"
+    _prune_orphaned_partials(home, prefix)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S-%fZ")
     destination = home / f"{prefix}{stamp}-{os.getpid()}.bak"
     fd, name = tempfile.mkstemp(prefix=prefix, suffix=".partial", dir=home)
