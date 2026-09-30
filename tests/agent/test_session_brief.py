@@ -98,6 +98,48 @@ def test_no_new_user_turn_since_previous_brief_skips(monkeypatch):
     assert session_brief.maybe_update_brief(_agent(_FakeDB(previous={"message_count": 4})), messages) is None
 
 
+def test_e2e_completed_turn_writes_a_readable_brief(monkeypatch, tmp_path):
+    """Real AIAgent + real SessionDB under a temp HERMES_HOME; only the auxiliary model reply is stubbed.
+    Proves finalize_turn -> maybe_update_brief -> sessions.brief_json -> get_session_brief, with the
+    ``enabled`` flag read through the parsed config."""
+    import os
+    from unittest.mock import patch
+
+    from hermes_state import SessionDB
+    from agent.turn_finalizer import finalize_turn
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    (home / "config.yaml").write_text("auxiliary:\n  session_brief:\n    enabled: true\n")
+    db = SessionDB(home / "state.db")
+    db.create_session("s-e2e", "tui")
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
+        from run_agent import AIAgent
+        agent = AIAgent(api_key="test-key", base_url="https://openrouter.ai/api/v1", model="test/model",
+                        quiet_mode=True, session_db=db, session_id="s-e2e", skip_context_files=True, skip_memory=True)
+    agent._session_db_created = True
+
+    reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(
+        {"goal": "fix the parser", "status": "patched and tested", "completed": ["patched parse()"],
+         "blockers": [], "decisions": ["kept regex"]})))])
+    seen_tasks = []
+    monkeypatch.setattr(session_brief, "call_llm", lambda **kw: seen_tasks.append(kw["task"]) or reply)
+    monkeypatch.setattr("hermes_cli.plugins.invoke_hook", lambda *_a, **_kw: [])
+
+    messages = [{"role": "user", "content": "fix the parser"}, {"role": "assistant", "content": "Done."}]
+    finalize_turn(
+        agent, final_response="Done.", api_call_count=1, interrupted=False, failed=False, messages=messages,
+        conversation_history=[], effective_task_id="task", turn_id="turn", user_message="fix the parser",
+        original_user_message="fix the parser", _should_review_memory=False, _turn_exit_reason="text_response(1)",
+    )
+    session_brief.wait_for_brief_updates()
+
+    stored = db.get_session_brief("s-e2e")
+    assert seen_tasks == [session_brief.TASK_NAME]
+    assert stored and stored["goal"] == "fix the parser" and stored["message_count"] == len(messages)
+
+
 def _finalize(agent, monkeypatch, **overrides):
     from agent.turn_finalizer import finalize_turn
     monkeypatch.setattr("hermes_cli.plugins.invoke_hook", lambda *_a, **_kw: [])
