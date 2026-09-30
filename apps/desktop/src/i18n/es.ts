@@ -2144,6 +2144,10 @@ export const esOverrides = {
           label: 'Generación de títulos',
           hint: 'Títulos de sesión'
         },
+        session_brief: {
+          label: 'Resumen de sesión',
+          hint: 'Resumen continuo tras cada turno'
+        },
         review: {
           label: 'Revisión',
           hint: 'subagente revisor de /review'
@@ -3981,6 +3985,7 @@ export const esOverrides = {
     sessions: 'Sesiones',
     terminal: 'Terminal',
     files: 'Archivos',
+    brief: 'Resumen',
     review: 'Revisión',
     logs: 'Registros',
     cronJobs: 'Tareas cron',
@@ -5189,6 +5194,18 @@ export const esOverrides = {
     panelsAria: 'Paneles de la barra lateral derecha',
     files: 'Sistema de archivos',
     terminal: 'Terminal',
+    brief: {
+      aria: 'Resumen de sesión',
+      goal: 'Objetivo',
+      status: 'Estado actual',
+      tasks: 'Tareas',
+      completed: 'Hecho hasta ahora',
+      blockers: 'Te necesita',
+      decisions: 'Decisiones',
+      updated: when => `Actualizado ${when}`,
+      emptyTitle: 'Aún no hay resumen',
+      emptyBody: 'Un resumen continuo de esta conversación aparece aquí tras la primera respuesta.'
+    },
     noFolderSelected: 'No hay carpeta seleccionada',
     changeCwdTitle: 'Cambiar directorio de trabajo',
     remotePickerTitle: 'Elige una carpeta remota',

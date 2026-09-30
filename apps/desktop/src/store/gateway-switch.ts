@@ -28,6 +28,7 @@ import {
   setSessionsLoadError,
   setSessionsLoading
 } from '@/store/session'
+import { clearAllSessionBriefs } from '@/store/session-brief'
 import { clearAllSessionControl } from '@/store/session-control'
 import { resetSessionPinMirror } from '@/store/session-pin-sync'
 import { clearAllSessionStates } from '@/store/session-states'
@@ -220,6 +221,7 @@ export function wipeSessionListsForGatewaySwitch(): void {
   // Runtime ids can be reused by the next backend. Retire both the live
   // checklist and its review snapshot before any new session is bound.
   clearAllSessionTodos()
+  clearAllSessionBriefs()
   clearAllSessionStates()
   // Structured goal/loop/heartbeat entries are keyed by runtime id, which the
   // next backend re-mints, so a full wipe is exact (and stale-response-safe).

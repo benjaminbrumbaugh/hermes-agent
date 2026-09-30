@@ -106,6 +106,7 @@ import {
   setWorkspaceCwdOwner,
   setYoloActive
 } from '@/store/session'
+import { refreshSessionBrief } from '@/store/session-brief'
 import { clearSessionControl } from '@/store/session-control'
 import { isSessionOwnerResolutionError } from '@/store/session-owner-resolution'
 import {
@@ -1516,6 +1517,7 @@ export function useSessionActions({
                   : resolveResumedBusy(activated.running ?? cachedViewState.busy, Boolean(latestCachedState?.busy))
 
               restoreSessionTodosFromSnapshot(cachedRuntimeId, activated.todo_state, running)
+              void refreshSessionBrief(cachedRuntimeId, storedSessionId)
 
               const activatedTurnStartedAt =
                 typeof activated.turn_started_at === 'number' && activated.turn_started_at > 0
@@ -2100,6 +2102,7 @@ export function useSessionActions({
         )
 
         restoreSessionTodosFromSnapshot(resumed.session_id, resumed.todo_state, resumedRunning)
+        void refreshSessionBrief(resumed.session_id, storedSessionId)
 
         if (!resumedRunning && prefetchApplied && prefetchMatchesResumedSession && prefetchedTranscriptMessages) {
           restoreSessionTodosFromSnapshot(

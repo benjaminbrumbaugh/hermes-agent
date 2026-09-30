@@ -14,6 +14,7 @@ import { atom } from 'nanostores'
 import { useMemo } from 'react'
 
 import { RightSidebarPane } from '@/app/right-sidebar'
+import { BriefPane } from '@/app/right-sidebar/brief'
 import { ReviewPane } from '@/app/right-sidebar/review'
 import type { GroupSetter } from '@/app/shell/group-setter'
 import type { StatusbarItem } from '@/app/shell/statusbar-controls'
@@ -90,6 +91,15 @@ export function FilesPane() {
   return (
     <div className={ZONE_CONTENT}>
       <RightSidebarPane onActivateFile={previewFile} onActivateFolder={previewFile} />
+    </div>
+  )
+}
+
+/** Brief — the backend-owned running summary of the active conversation. */
+export function BriefPaneContent() {
+  return (
+    <div className={ZONE_CONTENT}>
+      <BriefPane />
     </div>
   )
 }

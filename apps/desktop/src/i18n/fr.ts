@@ -2157,6 +2157,10 @@ export const frOverrides = {
           label: 'Génération de titre',
           hint: 'Titres de session'
         },
+        session_brief: {
+          label: 'Résumé de session',
+          hint: 'Résumé continu après chaque tour'
+        },
         review: {
           label: 'Révision',
           hint: 'Sous-agent de révision /review'
@@ -4001,6 +4005,7 @@ export const frOverrides = {
     sessions: 'Sessions',
     terminal: 'Terminal',
     files: 'Fichiers',
+    brief: 'Résumé',
     review: 'Revue',
     logs: 'Journaux',
     cronJobs: 'Tâches cron',
@@ -5212,6 +5217,18 @@ export const frOverrides = {
     panelsAria: 'Panneaux de la barre latérale droite',
     files: 'Système de fichiers',
     terminal: 'Terminal',
+    brief: {
+      aria: 'Résumé de session',
+      goal: 'Objectif',
+      status: 'Où en est-on',
+      tasks: 'Tâches',
+      completed: 'Fait jusqu’ici',
+      blockers: 'Besoin de vous',
+      decisions: 'Décisions',
+      updated: when => `Mis à jour ${when}`,
+      emptyTitle: 'Pas encore de résumé',
+      emptyBody: 'Un résumé continu de cette conversation apparaît ici après la première réponse.'
+    },
     noFolderSelected: 'Aucun dossier sélectionné',
     changeCwdTitle: 'Changer le répertoire de travail',
     remotePickerTitle: 'Choisir un dossier distant',
