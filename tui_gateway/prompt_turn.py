@@ -763,6 +763,8 @@ def _invoke_agent(
     _title_key = session.get("session_key") or sid
     agent._on_session_title = lambda t, _src, _k=_title_key: _emit(
         "session.title", sid, {"session_id": _k, "title": t})
+    agent._on_session_brief = lambda brief, _k=_title_key: _emit(
+        "session.brief", sid, {"session_id": _k, "brief": brief})
     _usage_stop, _usage_thread = _start_usage_ticker(sid, agent)
     try:
         from agent.notification_presentation import notification_turn, event_presentation_muted

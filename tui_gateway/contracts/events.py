@@ -18,7 +18,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from .base import JsonValue, Payload, WireEnum
-from .common import MessageReaction, SessionLiveInfo, SubagentStatus, ToolLabel, ToolLabelKind, Usage
+from .common import MessageReaction, SessionBrief, SessionLiveInfo, SubagentStatus, ToolLabel, ToolLabelKind, Usage
 from .config_free_tier_control import SessionControlSnapshot
 from .registry import event
 
@@ -241,6 +241,16 @@ class SessionTitlePayload(Payload):
 
 
 event("session.title", SessionTitlePayload, doc="Auto-titling renamed the session (``session_id`` is the stored key).")
+
+
+class SessionBriefPayload(Payload):
+    """``prompt_turn._invoke_agent`` ``_on_session_brief`` hook; ``brief`` is a ``SessionBrief``."""
+
+    session_id: str
+    brief: SessionBrief
+
+
+event("session.brief", SessionBriefPayload, doc="The post-turn session brief was refreshed (``session_id`` is the stored key).")
 
 
 class ReactionPayload(Payload):

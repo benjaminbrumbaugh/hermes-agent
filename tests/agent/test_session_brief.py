@@ -1,0 +1,128 @@
+"""Session brief generation: the post-turn delta window, reply parsing, and the skip guards."""
+import json
+import threading
+from types import SimpleNamespace
+
+import pytest
+
+from agent import session_brief
+
+
+class _FakeDB:
+    def __init__(self, previous=None):
+        self.previous = previous
+        self.written = []
+
+    def get_session_brief(self, session_id):
+        return self.previous
+
+    def set_session_brief(self, session_id, brief):
+        self.written.append((session_id, brief))
+        return True
+
+
+def _agent(db, **overrides):
+    base = dict(
+        _session_db=db, session_id="s1", _session_db_created=True, _persist_disabled=False,
+        _delegate_depth=0, platform="tui", model="m", provider="p", base_url=None, api_key=None,
+        api_mode=None, _on_session_brief=None, _emit_auxiliary_failure=None,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _messages(n_user):
+    out = []
+    for i in range(n_user):
+        out.append({"role": "user", "content": f"ask {i}"})
+        out.append({"role": "assistant", "content": f"answer {i}"})
+    return out
+
+
+def test_delta_is_only_the_turns_after_the_previous_brief():
+    messages = _messages(3)
+    previous = {"message_count": 4}
+    delta = session_brief._turns_since(messages, previous)
+    assert [m["content"] for m in delta] == ["ask 2", "answer 2"]
+
+
+def test_delta_falls_back_to_the_whole_transcript_when_compression_shrank_it():
+    messages = _messages(2)
+    assert session_brief._turns_since(messages, {"message_count": 40}) == messages
+    assert session_brief._turns_since(messages, None) == messages
+
+
+@pytest.mark.parametrize("raw", [
+    '{"goal": "g", "status": "s", "completed": ["a"], "blockers": [], "decisions": ["why"]}',
+    'Here you go:\n```json\n{"goal": "g", "status": "s", "completed": ["a"], "blockers": [], "decisions": ["why"]}\n```',
+])
+def test_reply_parses_through_fences_and_prefixes(raw):
+    parsed = session_brief._parse_brief(raw)
+    brief = session_brief.normalize_brief(parsed, message_count=7)
+    assert brief["goal"] == "g" and brief["completed"] == ["a"] and brief["message_count"] == 7
+    assert brief["version"] == session_brief.BRIEF_VERSION
+
+
+def test_non_brief_reply_is_rejected():
+    assert session_brief._parse_brief("I cannot help with that.") is None
+    assert session_brief._parse_brief('{"title": "x"}') is None
+
+
+def test_update_persists_and_notifies(monkeypatch):
+    reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(
+        {"goal": "g", "status": "s", "completed": [], "blockers": ["needs key"], "decisions": []})))])
+    monkeypatch.setattr(session_brief, "call_llm", lambda **kw: reply)
+    monkeypatch.setattr(session_brief, "_brief_config", lambda: {})
+    db = _FakeDB(previous=None)
+    seen = []
+    session_brief.update_session_brief(db, "s1", _messages(1), message_count=2, brief_callback=seen.append)
+    assert db.written and db.written[0][1]["blockers"] == ["needs key"]
+    assert seen == [db.written[0][1]]
+
+
+@pytest.mark.parametrize("override", [
+    {"_delegate_depth": 1}, {"_persist_disabled": True}, {"platform": "cron"}, {"_session_db_created": False},
+])
+def test_guards_skip_without_spawning(monkeypatch, override):
+    monkeypatch.setattr(session_brief, "brief_enabled", lambda: True)
+    spawned = []
+    monkeypatch.setattr("agent.memory_provider.spawn_context_thread",
+                        lambda *a, **k: spawned.append(k) or threading.Thread(target=lambda: None))
+    assert session_brief.maybe_update_brief(_agent(_FakeDB(), **override), _messages(1)) is None
+    assert spawned == []
+
+
+def test_no_new_user_turn_since_previous_brief_skips(monkeypatch):
+    monkeypatch.setattr(session_brief, "brief_enabled", lambda: True)
+    messages = _messages(2)
+    assert session_brief.maybe_update_brief(_agent(_FakeDB(previous={"message_count": 4})), messages) is None
+
+
+def _finalize(agent, monkeypatch, **overrides):
+    from agent.turn_finalizer import finalize_turn
+    monkeypatch.setattr("hermes_cli.plugins.invoke_hook", lambda *_a, **_kw: [])
+    kwargs = dict(
+        final_response="Done.", api_call_count=1, interrupted=False, failed=False,
+        messages=[{"role": "user", "content": "do it"}, {"role": "assistant", "content": "Done."}],
+        conversation_history=[], effective_task_id="task", turn_id="turn", user_message="do it",
+        original_user_message="do it", _should_review_memory=False, _turn_exit_reason="text_response(1)",
+    )
+    kwargs.update(overrides)
+    return finalize_turn(agent, **kwargs)
+
+
+@pytest.mark.parametrize("outcome", [{}, {"interrupted": True}, {"failed": True}, {"final_response": ""}])
+def test_finalizer_refreshes_brief_after_persist_only_for_completed_turns(monkeypatch, outcome):
+    """Contract: the refresh reads the persisted transcript (persist first), and a failed, interrupted or
+    empty turn never spends the auxiliary call."""
+    from tests.agent.test_turn_finalizer_final_response_persistence import FakeAgent
+    order = []
+    agent = FakeAgent()
+    original_persist = agent._persist_session
+    agent._persist_session = lambda m, h: (order.append("persist"), original_persist(m, h))
+    monkeypatch.setattr("agent.session_brief.maybe_update_brief", lambda a, m: order.append("brief"))
+    _finalize(agent, monkeypatch, **outcome)
+    if outcome:
+        assert "brief" not in order
+    else:
+        assert order.index("persist") < order.index("brief")

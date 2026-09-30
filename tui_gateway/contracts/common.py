@@ -16,6 +16,19 @@ class OpenModel(Result):
     model_config = Result.model_config | {"extra": "allow"}
 
 
+class SessionBrief(Result):
+    """``agent.session_brief.normalize_brief``: the persisted, human-facing running summary."""
+
+    version: int
+    goal: str
+    status: str
+    completed: list[str]
+    blockers: list[str]
+    decisions: list[str]
+    updated_at: float
+    message_count: int
+
+
 class Usage(OpenModel):
     """``tui_gateway/server.py::_get_usage`` + ``agent/context_breakdown.py::context_usage_fields``."""
 

@@ -8,8 +8,8 @@ from __future__ import annotations
 from pydantic import Field
 
 from .base import JsonValue, Params, Result, WireEnum
-from .common import (OpenModel, PendingApproval, ProfileParams, SessionLiveInfo, SessionParams, TranscriptMessage,
-                     Usage)
+from .common import (OpenModel, PendingApproval, ProfileParams, SessionBrief, SessionLiveInfo, SessionParams,
+                     TranscriptMessage, Usage)
 from .connectors_operation import ConnectionRequestPayload
 from .registry import method
 
@@ -310,6 +310,18 @@ class SessionTitleResult(Result):
 
 method("session.title", params=SessionTitleParams, result=SessionTitleResult,
        doc="Read or set a live session's title; a title set before the row exists is queued.")
+
+
+class SessionBriefParams(SessionParams):
+    pass
+
+
+class SessionBriefResult(Result):
+    brief: SessionBrief | None = None
+
+
+method("session.brief", params=SessionBriefParams, result=SessionBriefResult,
+       doc="Read the stored session brief for a live session's lineage; null until the first turn wrote one.")
 
 
 class SessionSetHiddenParams(Params):

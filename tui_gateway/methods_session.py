@@ -1168,6 +1168,17 @@ def _(rid, params: dict, session: dict, db) -> dict:
     return _ok(rid, result)
 
 
+@method("session.brief")
+@_with_db(5007, session_scoped=True)
+def _(rid, params: dict, session: dict, db) -> dict:
+    key = session["session_key"]
+    try:
+        brief = db.get_session_brief(key) if key else None
+    except Exception as e:
+        return _err(rid, 5007, str(e))
+    return _ok(rid, {"brief": brief})
+
+
 @method("session.archive")
 def _(rid, params: dict) -> dict:
     """Set/clear ``archived`` (out of the default list, messages kept — the Desktop PATCH parity flag)

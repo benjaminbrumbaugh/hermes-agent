@@ -790,6 +790,9 @@ DEFAULT_CONFIG = {
             "language": "",
         },
         "memory_query_rewrite": _aux(8, reasoning_effort=False),
+        # Running human-facing summary (goal / status / completed / blockers / decisions) refreshed after
+        # each completed turn from the previous brief + the new turns only; never enters the prompt.
+        "session_brief": {"enabled": True, **_aux(45)},
         "tts_audio_tags": _aux(30),
         # Kanban: triage_specifier expands a Triage one-liner into a spec (cheap model OK);
         # kanban_decomposer emits a JSON graph of child tasks (more tokens).

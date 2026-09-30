@@ -3103,6 +3103,24 @@
       }
     },
     {
+      "name": "session.brief",
+      "summary": "Read the stored session brief for a live session's lineage; null until the first turn wrote one.",
+      "params": [
+        {
+          "name": "params",
+          "schema": {
+            "$ref": "#/components/schemas/SessionBriefParams"
+          }
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/SessionBriefResult"
+        }
+      }
+    },
+    {
       "name": "session.close",
       "summary": "Tear down a live session (its stored row stays resumable).",
       "params": [
@@ -28940,6 +28958,128 @@
         "title": "SessionBranchWholeResult",
         "type": "object"
       },
+      "SessionBrief": {
+        "additionalProperties": false,
+        "description": "``agent.session_brief.normalize_brief``: the persisted, human-facing running summary.",
+        "properties": {
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "completed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Completed",
+            "type": "array"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "decisions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "goal",
+          "status",
+          "completed",
+          "blockers",
+          "decisions",
+          "updated_at",
+          "message_count"
+        ],
+        "title": "SessionBrief",
+        "type": "object"
+      },
+      "SessionBriefParams": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionBriefParams",
+        "type": "object"
+      },
+      "SessionBriefPayload": {
+        "additionalProperties": false,
+        "description": "``prompt_turn._invoke_agent`` ``_on_session_brief`` hook; ``brief`` is a ``SessionBrief``.",
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "brief": {
+            "$ref": "#/components/schemas/SessionBrief"
+          }
+        },
+        "required": [
+          "session_id",
+          "brief"
+        ],
+        "title": "SessionBriefPayload",
+        "type": "object"
+      },
+      "SessionBriefResult": {
+        "additionalProperties": false,
+        "properties": {
+          "brief": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionBrief"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "title": "SessionBriefResult",
+        "type": "object"
+      },
       "SessionCloseParams": {
         "additionalProperties": false,
         "properties": {
@@ -39909,6 +40049,18 @@
           "name": "payload",
           "schema": {
             "$ref": "#/components/schemas/ReviewSummaryPayload"
+          }
+        }
+      ]
+    },
+    {
+      "name": "session.brief",
+      "summary": "The post-turn session brief was refreshed (``session_id`` is the stored key).",
+      "params": [
+        {
+          "name": "payload",
+          "schema": {
+            "$ref": "#/components/schemas/SessionBriefPayload"
           }
         }
       ]

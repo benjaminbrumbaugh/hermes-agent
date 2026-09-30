@@ -3185,6 +3185,24 @@ export interface SessionTitleResult {
   session_key?: string | null
   pending?: boolean | null
 }
+export interface SessionBriefParams {
+  session_id: string
+  profile?: string | null
+}
+export interface SessionBriefResult {
+  brief?: SessionBrief | null
+}
+/** ``agent.session_brief.normalize_brief``: the persisted, human-facing running summary. */
+export interface SessionBrief {
+  version: number
+  goal: string
+  status: string
+  completed: string[]
+  blockers: string[]
+  decisions: string[]
+  updated_at: number
+  message_count: number
+}
 /** ``session_id`` is a live runtime id first, else a stored id / key / title. */
 export interface SessionSetHiddenParams {
   session_id: string
@@ -4622,6 +4640,11 @@ export interface SessionTitlePayload {
   session_id: string
   title: string
 }
+/** ``prompt_turn._invoke_agent`` ``_on_session_brief`` hook; ``brief`` is a ``SessionBrief``. */
+export interface SessionBriefPayload {
+  session_id: string
+  brief: SessionBrief
+}
 /** ``agent_callbacks`` reaction_callback. */
 export interface ReactionPayload {
   kind: string
@@ -5223,6 +5246,8 @@ export interface RpcMethods {
   'session.branch_stored': { params: SessionBranchStoredParams; result: SessionBranchStoredResult }
   /** session.branch of the whole history without echoing the copied transcript back. */
   'session.branch_whole': { params: SessionBranchWholeParams; result: SessionBranchWholeResult }
+  /** Read the stored session brief for a live session's lineage; null until the first turn wrote one. */
+  'session.brief': { params: SessionBriefParams; result: SessionBriefResult }
   /** Tear down a live session (its stored row stays resumable). */
   'session.close': { params: SessionCloseParams; result: SessionCloseResult }
   /** Manual /compress of an idle session, optionally focused on a topic. */
@@ -5556,6 +5581,7 @@ export const RPC_METHODS = [
   'session.branch',
   'session.branch_stored',
   'session.branch_whole',
+  'session.brief',
   'session.close',
   'session.compress',
   'session.context_breakdown',
@@ -5777,6 +5803,8 @@ export interface BackendGatewayEventMap {
   'request.cancel': RequestCancelPayload
   /** Background review of the last turn finished. */
   'review.summary': ReviewSummaryPayload
+  /** The post-turn session brief was refreshed (``session_id`` is the stored key). */
+  'session.brief': SessionBriefPayload
   /** Persisted goal / loop / heartbeat state changed. */
   'session.control.update': SessionControlUpdatePayload
   /** Live session settings snapshot (``server._session_info``); also the ``info`` of create/resume/activate. */
@@ -5882,6 +5910,7 @@ export const GATEWAY_EVENT_TYPES = [
   'reasoning.delta',
   'request.cancel',
   'review.summary',
+  'session.brief',
   'session.control.update',
   'session.info',
   'session.reclaimed',
