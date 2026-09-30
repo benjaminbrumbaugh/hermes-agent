@@ -1439,6 +1439,20 @@ title-only hint (the agent turn still sees only the attachment reference), so a 
 this" plus a large paste is named after the pasted topic. Files you attach yourself are never
 read for titling.
 
+### Session brief
+
+After each completed turn Hermes refreshes a short **session brief** — the goal, where things
+stand, what is done, what needs you, and the decisions made — with one auxiliary call that
+receives the previous brief plus only the new turns, so the cost is bounded by turn size rather
+than conversation length. The brief is stored on the session (and follows it through context
+compression), is pushed to the Desktop app's **Brief** sidebar tab, and is readable over
+JSON-RPC as `session.brief`. It is written for you, not for the model: nothing from it enters
+the prompt, so per-conversation caching is untouched.
+
+The auxiliary slot is `auxiliary.session_brief` (provider, model, timeout, like the other
+tasks). Set `auxiliary.session_brief.enabled: false` to stop refreshing it. Subagents, cron
+jobs and non-persisted runs never spend the call.
+
 ### Stream-only endpoints
 
 Some OpenAI-compatible endpoints reject non-streaming chat requests outright (e.g. Tencent Copilot returns HTTP 400 `"Non-stream chat request is currently not supported"`). Interactive chat already streams, but auxiliary tasks (title generation, compression, vision) use non-streaming calls and would fail on every attempt. Hermes always treats `copilot.tencent.com` as stream-only; for any other such endpoint, list a URL substring under `auxiliary.stream_only_base_urls`:
