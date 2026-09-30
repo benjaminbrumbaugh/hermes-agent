@@ -3037,6 +3037,7 @@ export interface Translations {
     sessions: string
     terminal: string
     files: string
+    brief: string
     review: string
     logs: string
     cronJobs: string
@@ -4065,6 +4066,18 @@ export interface Translations {
     panelsAria: string
     files: string
     terminal: string
+    brief: {
+      aria: string
+      goal: string
+      status: string
+      tasks: string
+      completed: string
+      blockers: string
+      decisions: string
+      updated: (when: string) => string
+      emptyTitle: string
+      emptyBody: string
+    }
     noFolderSelected: string
     changeCwdTitle: string
     remotePickerTitle: string

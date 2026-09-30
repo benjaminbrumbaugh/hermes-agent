@@ -28,6 +28,7 @@ import {
   setWorkspaceCwdOwner,
   setYoloActive
 } from '@/store/session'
+import { applySessionBrief } from '@/store/session-brief'
 import { reportInstallMethodWarning } from '@/store/updates'
 
 import { finalizeInterruptedMessages } from '../../use-prompt-actions/rewind'
@@ -529,6 +530,16 @@ export function handleSessionInfoEvent(ctx: GatewayEventContext): boolean {
       // from any of its ids (#123337); bare recents patching left project
       // rows stale.
       applySessionTitle(storedId, nextTitle)
+    }
+
+    return true
+  }
+
+  if (event.type === 'session.brief') {
+    const storedId = typeof payload?.session_id === 'string' ? payload.session_id : ''
+
+    if (storedId) {
+      applySessionBrief(storedId, payload?.brief)
     }
 
     return true

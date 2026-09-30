@@ -2151,6 +2151,10 @@ export const deOverrides = {
           label: 'Titel-Generierung',
           hint: 'Session-Titel'
         },
+        session_brief: {
+          label: 'Sitzungs-Kurzfassung',
+          hint: 'Laufende Zusammenfassung nach jedem Zug'
+        },
         review: {
           label: 'Review',
           hint: '/review Bewertungs-Subagent'
@@ -3989,6 +3993,7 @@ export const deOverrides = {
     sessions: 'Sessions',
     terminal: 'Terminal',
     files: 'Dateien',
+    brief: 'Kurzfassung',
     review: 'Review',
     logs: 'Logs',
     cronJobs: 'Cron-Jobs',
@@ -5198,6 +5203,18 @@ export const deOverrides = {
     panelsAria: 'Panels der rechten Sidebar',
     files: 'Dateisystem',
     terminal: 'Terminal',
+    brief: {
+      aria: 'Sitzungs-Kurzfassung',
+      goal: 'Ziel',
+      status: 'Aktueller Stand',
+      tasks: 'Aufgaben',
+      completed: 'Bisher erledigt',
+      blockers: 'Braucht dich',
+      decisions: 'Entscheidungen',
+      updated: when => `Aktualisiert ${when}`,
+      emptyTitle: 'Noch keine Kurzfassung',
+      emptyBody: 'Eine laufende Zusammenfassung dieser Unterhaltung erscheint hier nach der ersten Antwort.'
+    },
     noFolderSelected: 'Kein Ordner ausgewählt',
     changeCwdTitle: 'Arbeitsverzeichnis ändern',
     remotePickerTitle: 'Remote-Ordner wählen',

@@ -152,9 +152,11 @@ it.each(['advanced', 'simple'] as const)(
   async initialMode => {
     const { group, split, normalize } = await import('./model')
 
+    // Every registered right-side pane, so boot adoption has nothing to add and
+    // the restored tree compares against the fixture pane-for-pane.
     const legacyTree = split(
       'row',
-      [group(['sessions', 'bots']), group(['workspace']), group(['files', 'review', 'terminal'])],
+      [group(['sessions', 'bots']), group(['workspace']), group(['brief', 'files', 'review', 'terminal'])],
       [2, 8, 3]
     )
 

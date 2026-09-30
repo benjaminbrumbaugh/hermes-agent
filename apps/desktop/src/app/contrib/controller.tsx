@@ -120,7 +120,7 @@ import { $workspaceIsPage, WORKSPACE_PAGE_HEADER_AREA } from '../routes'
 
 import { BASIC_TREE, DEFAULT_TREE, registerLayoutPresets } from './layout-presets'
 import { bindLayoutSides } from './layout-sides'
-import { FilesPane, LogsPane, ReviewPaneContent } from './panes'
+import { BriefPaneContent, FilesPane, LogsPane, ReviewPaneContent } from './panes'
 import { ContribWiring, WiredPane } from './wiring'
 import { WorkspacePageHeaderHostContext } from './workspace-page-header'
 
@@ -268,6 +268,24 @@ registry.registerMany([
       tabTitleText: () => translateNow('sidebar.files')
     },
     render: () => idle(<FilesPane />)
+  },
+  {
+    id: 'brief',
+    area: 'panes',
+    title: translateNow('sidebar.brief'),
+    // Stacks as the FRONT tab of the files sidebar: a persisted layout that
+    // predates the pane adopts it beside the tree instead of scattering it.
+    data: {
+      placement: 'right',
+      collapsible: true,
+      dock: { pane: 'files', pos: 'center', before: 'files' },
+      width: FILE_BROWSER_DEFAULT_WIDTH,
+      minWidth: FILE_BROWSER_MIN_WIDTH,
+      maxWidth: FILE_BROWSER_MAX_WIDTH,
+      tabTitle: () => <LocalizedTabTitle select={t => t.sidebar.brief} />,
+      tabTitleText: () => translateNow('sidebar.brief')
+    },
+    render: () => idle(<BriefPaneContent />)
   },
   {
     id: 'review',

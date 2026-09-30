@@ -24,7 +24,7 @@ export const DEFAULT_TREE = split(
       [
         split(
           'row',
-          [group(['review'], { id: 'grp-review' }), group(['files'], { id: 'grp-files' })],
+          [group(['review'], { id: 'grp-review' }), group(['brief', 'files'], { id: 'grp-files' })],
           [1, 1.2],
           'spl-rail'
         ),
@@ -43,7 +43,7 @@ export const DEFAULT_TREE = split(
 // cover the conversation, which a terminal tab did.
 const FOCUS_TREE = split(
   'row',
-  [group(['sessions']), split('column', [group(['workspace', 'files', 'review']), group(['terminal'])], [3, 1])],
+  [group(['sessions']), split('column', [group(['workspace', 'brief', 'files', 'review']), group(['terminal'])], [3, 1])],
   [1, 4.6]
 )
 
@@ -58,7 +58,7 @@ export const BASIC_TREE = split(
   [
     group(['sessions']),
     split('column', [group(['workspace']), group(['terminal'])], [3, 1]),
-    split('row', [group(['review']), group(['files'])], [1, 1.2])
+    split('row', [group(['review']), group(['brief', 'files'])], [1, 1.2])
   ],
   [1, 3.4, 1.25]
 )
@@ -68,7 +68,7 @@ const BASIC_RESTING = ['terminal', 'files', 'review'] as const
 const TERMINAL_TREE = split(
   'column',
   [
-    split('row', [group(['sessions']), group(['workspace']), group(['files', 'review'])], [1, 3.2, 1.2]),
+    split('row', [group(['sessions']), group(['workspace']), group(['brief', 'files', 'review'])], [1, 3.2, 1.2]),
     group(['terminal'])
   ],
   [3, 1]
@@ -77,7 +77,7 @@ const TERMINAL_TREE = split(
 const QUAD_TREE = split(
   'column',
   [
-    split('row', [group(['sessions', 'files']), group(['workspace'])], [1, 3]),
+    split('row', [group(['sessions', 'brief', 'files']), group(['workspace'])], [1, 3]),
     split('row', [group(['terminal']), group(['review'])], [1.4, 1])
   ],
   [3, 1]
