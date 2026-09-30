@@ -8,7 +8,20 @@ import { fileURLToPath } from 'node:url'
 
 import { test } from 'vitest'
 
-import { preflightStateDb } from './state-db-preflight'
+import { preflightStateDb, stateDbPreflightTimeoutMs } from './state-db-preflight'
+
+test('the snapshot deadline grows with the database instead of a flat cap that kills large copies', (): void => {
+  const floor: number = stateDbPreflightTimeoutMs(0)
+  const gb = 1024 ** 3
+
+  assert.equal(stateDbPreflightTimeoutMs(0), floor)
+  assert.ok(stateDbPreflightTimeoutMs(50 * 1024 * 1024) >= floor)
+  // A 12.7 GB state.db took ~35 s to snapshot on a laptop and was cancelled at 30 s (ETIMEDOUT);
+  // its deadline must leave real headroom past what the copy needs.
+  assert.ok(stateDbPreflightTimeoutMs(12.7 * gb) > 90_000)
+  assert.ok(stateDbPreflightTimeoutMs(12.7 * gb) > stateDbPreflightTimeoutMs(1 * gb))
+  assert.equal(stateDbPreflightTimeoutMs(10_000 * gb), stateDbPreflightTimeoutMs(1_000 * gb))
+})
 
 test('the desktop preflight publishes committed WAL rows before its caller can stop the backend', async (): Promise<void> => {
   const home: string = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-db-'))

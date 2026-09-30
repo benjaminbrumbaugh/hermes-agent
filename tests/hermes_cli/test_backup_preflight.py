@@ -53,3 +53,31 @@ runpy.run_path(sys.argv[0], run_name='__main__')
     assert result.returncode != 0
     assert sorted(home.glob("state.db.pre-update-emergency-*.bak")) == previous
     assert not list(home.glob("*.partial"))
+
+
+def test_preflight_prunes_only_aged_orphaned_staging_files(tmp_path):
+    """A SIGKILLed snapshot (the Desktop's spawnSync timeout) leaves ``.partial`` staging files the
+    size of state.db; the next run reclaims the old ones and leaves a fresh one (a live sibling) alone."""
+    import os
+    import time
+
+    from hermes_cli.backup_sqlite import preflight_state_db
+
+    home = tmp_path / "home"
+    home.mkdir()
+    sqlite3.connect(home / "state.db").execute("CREATE TABLE t (x)").connection.close()
+    prefix = "state.db.pre-update-emergency-"
+    old = home / f"{prefix}abc123.partial"
+    old_wal = home / f"{prefix}abc123.partial-wal"
+    fresh = home / f"{prefix}live.partial"
+    for f in (old, old_wal, fresh):
+        f.write_bytes(b"x")
+    stale_at = time.time() - 3 * 3600
+    os.utime(old, (stale_at, stale_at))
+    os.utime(old_wal, (stale_at, stale_at))
+
+    result = preflight_state_db(home)
+
+    assert Path(result["path"]).exists()
+    assert not old.exists() and not old_wal.exists()
+    assert fresh.exists()
