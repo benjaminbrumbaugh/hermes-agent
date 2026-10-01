@@ -20,6 +20,8 @@ interface StateDbPreflight {
 
 // Synchronous by design: the caller must not stop the backend before the snapshot.
 export function preflightStateDb({ python, script, home, log, launcher = null }: StateDbPreflight): void {
+  const startedAt: number = Date.now()
+
   try {
     const command: string | null = launcher ?? python
 
@@ -28,7 +30,9 @@ export function preflightStateDb({ python, script, home, log, launcher = null }:
     }
 
     const args: string[] = launcher ? ['--run-module', 'hermes_cli.backup_sqlite', home] : ['-I', '-S', script, home]
-    const timeout: number = stateDbPreflightTimeoutMs(stateDbBytes(home))
+    const bytes: number = stateDbBytes(home)
+    const timeout: number = stateDbPreflightTimeoutMs(bytes)
+    log(`[updates] state.db pre-flight: snapshot ${bytes} bytes via ${command}, deadline ${timeout}ms`)
 
     // Node refuses direct .cmd execFile; an older published launcher can still
     // be one. Same fail-closed guard as the update check: shell:true would
@@ -53,10 +57,12 @@ export function preflightStateDb({ python, script, home, log, launcher = null }:
       })
     )
 
-    log(`[updates] state.db pre-flight: ${result.trim()}`)
+    log(`[updates] state.db pre-flight (${Date.now() - startedAt}ms): ${result.trim()}`)
   } catch (error: unknown) {
+    const elapsed: number = Date.now() - startedAt
+
     const message =
-      `state.db pre-flight failed: ${error instanceof Error ? error.message : String(error)}. ` +
+      `state.db pre-flight failed after ${elapsed}ms: ${error instanceof Error ? error.message : String(error)}. ` +
       'Update cancelled before backend shutdown. Update the selected installation with its hermes update command, then retry.'
 
     log(`[updates] ${message}`)
