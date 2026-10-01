@@ -624,6 +624,16 @@ bindPaneVisibility(
   () => setFileBrowserOpen(false),
   () => setFileBrowserOpen(true)
 )
+// Brief shares the files sidebar's owner store: the titlebar/⌘J toggle reopens
+// a hidden right column through the active tab's opener, so a tab without one
+// (brief in front) left the click doing nothing. Unlike files it needs no
+// workspace — a brief exists for any chat.
+bindPaneVisibility(
+  'brief',
+  $fileBrowserOpen,
+  () => setFileBrowserOpen(false),
+  () => setFileBrowserOpen(true)
+)
 // ⌘G — the review sidebar appears/disappears (and comes to the front).
 bindPaneVisibility(
   'review',
