@@ -320,3 +320,11 @@ native/fts5_cjk/*.so
 /pm/.lock.json.lock
 
 apps/desktop/.dist-build*
+
+# Gas City rig state (bd/Dolt); identity.toml is the only tracked beads file
+.beads/*
+!.beads/identity.toml
+.beads-credential-key
+/.agents/
+/.claude/
+*.gate.lock*
