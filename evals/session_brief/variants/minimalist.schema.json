@@ -1,0 +1,24 @@
+{
+  "schema_delta": {
+    "added": {},
+    "removed": ["decisions"]
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "goal": {"type": "string"},
+      "status": {"type": "string"},
+      "completed": {"type": "array", "items": {"type": "string"}},
+      "blockers": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["goal", "status", "completed", "blockers"],
+    "additionalProperties": false
+  },
+  "normalization": {
+    "goal": "goal",
+    "status": "status",
+    "completed": "completed",
+    "blockers": "blockers",
+    "decisions": null
+  }
+}

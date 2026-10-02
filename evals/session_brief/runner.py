@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
+import hashlib
 import json
 import os
 import sys
@@ -36,8 +37,9 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
@@ -50,6 +52,20 @@ DEFAULT_MODEL = "stealth/space-bunny-alpha"
 OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 GRADER_MAX_TOKENS = 1800
 _print_lock = threading.Lock()
+
+_CANONICAL_FIELDS = ("goal", "status", "completed", "blockers", "decisions")
+
+
+@dataclass(frozen=True)
+class VariantSpec:
+    """Eval-only content contract; production remains the baseline source of truth."""
+
+    name: str
+    system_prompt: str
+    response_format: Dict[str, Any]
+    normalize: Callable[[Dict[str, Any], int], Dict[str, Any]]
+    schema_delta: Dict[str, Any]
+    fingerprint: str
 
 
 # --------------------------------------------------------------------------- OpenRouter transport
@@ -101,27 +117,138 @@ def chat(messages: List[Dict[str, str]], *, model: str, max_tokens: int, respons
 
 # --------------------------------------------------------------------------- variants
 
-def load_variant(name: str) -> str:
-    if name == "baseline":
-        return sb._SYSTEM_PROMPT
-    path = VARIANTS / f"{name}.md"
+def _stable_fingerprint(*parts: Any) -> str:
+    payload = json.dumps(parts, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _string_list(value: Any, cap: int) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if isinstance(item, (str, int, float)) and str(item).strip()][:cap]
+
+
+def _normalize_variant(parsed: Dict[str, Any], *, message_count: int,
+                       field_map: Dict[str, Optional[str]]) -> Dict[str, Any]:
+    """Project a native variant response into the stable renderer-facing eval view."""
+    goal_source = field_map.get("goal", "goal")
+    status_source = field_map.get("status", "status")
+    completed_source = field_map.get("completed", "completed")
+    blockers_source = field_map.get("blockers", "blockers")
+    decisions_source = field_map.get("decisions", "decisions")
+    status = str(parsed.get(status_source) or "").strip() if status_source else ""
+    blockers = _string_list(parsed.get(blockers_source), 6) if blockers_source else []
+    waiting_on = parsed.get("waiting_on")
+    if not blockers and isinstance(waiting_on, str) and waiting_on.strip():
+        blockers = [waiting_on.strip()]
+    return {
+        "version": sb.BRIEF_VERSION,
+        "goal": str(parsed.get(goal_source) or "").strip() if goal_source else "",
+        "status": status,
+        "completed": _string_list(parsed.get(completed_source), 8) if completed_source else [],
+        "blockers": blockers,
+        "decisions": _string_list(parsed.get(decisions_source), 6) if decisions_source else [],
+        "updated_at": time.time(),
+        "message_count": int(message_count),
+    }
+
+
+def _load_schema_sidecar(name: str) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Optional[str]]]:
+    path = VARIANTS / f"{name}.schema.json"
     if not path.exists():
-        raise SystemExit(f"unknown variant {name!r}; add {path}")
-    return path.read_text(encoding="utf-8").strip()
+        return sb._RESPONSE_FORMAT, {"added": {}, "removed": []}, {field: field for field in _CANONICAL_FIELDS}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"invalid schema sidecar {path}: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("schema"), dict):
+        raise SystemExit(f"schema sidecar {path} must contain an object-valued schema")
+    schema = payload["schema"]
+    properties = schema.get("properties")
+    if (
+        schema.get("type") != "object"
+        or not isinstance(properties, dict)
+        or schema.get("additionalProperties") is not False
+    ):
+        raise SystemExit(f"schema sidecar {path} must be a strict object schema")
+    base_properties = sb._BRIEF_SCHEMA["properties"]
+    shared = set(properties) & set(base_properties)
+    changed = sorted(key for key in shared if properties[key] != base_properties[key])
+    if changed:
+        raise SystemExit(f"schema sidecar {path} changes production fields: {changed}")
+    actual_added = {key: properties[key] for key in sorted(set(properties) - set(base_properties))}
+    actual_removed = sorted(set(base_properties) - set(properties))
+    delta = payload.get("schema_delta")
+    if not isinstance(delta, dict) or delta.get("added") != actual_added or delta.get("removed") != actual_removed:
+        raise SystemExit(
+            f"schema sidecar {path} has inaccurate schema_delta; expected added={actual_added!r}, "
+            f"removed={actual_removed!r}"
+        )
+    required = schema.get("required")
+    if not isinstance(required, list) or set(required) != set(properties):
+        raise SystemExit(f"schema sidecar {path} must require exactly every declared property")
+    mapping = payload.get("normalization") or {}
+    if not isinstance(mapping, dict):
+        raise SystemExit(f"schema sidecar {path} normalization must be an object")
+    field_map: Dict[str, Optional[str]] = {}
+    for field in _CANONICAL_FIELDS:
+        source = mapping.get(field, field)
+        if source is not None and source not in properties:
+            raise SystemExit(f"schema sidecar {path} maps {field!r} to missing field {source!r}")
+        field_map[field] = source
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {"name": f"session_brief_{name}", "strict": True, "schema": schema},
+    }
+    return response_format, delta, field_map
 
 
-def _generate_one(previous: Optional[Dict[str, Any]], delta: List[Dict[str, Any]], *, system_prompt: str,
+def load_variant_spec(name: str) -> VariantSpec:
+    if name == "baseline":
+        return VariantSpec(
+            name=name,
+            system_prompt=sb._SYSTEM_PROMPT,
+            response_format=sb._RESPONSE_FORMAT,
+            normalize=sb.normalize_brief,
+            schema_delta={"added": {}, "removed": []},
+            fingerprint=_stable_fingerprint(name, sb._SYSTEM_PROMPT, sb._RESPONSE_FORMAT, "production-normalizer"),
+        )
+    prompt_path = VARIANTS / f"{name}.md"
+    if not prompt_path.exists():
+        raise SystemExit(f"unknown variant {name!r}; add {prompt_path}")
+    system_prompt = prompt_path.read_text(encoding="utf-8").strip()
+    response_format, schema_delta, field_map = _load_schema_sidecar(name)
+
+    def normalize(parsed: Dict[str, Any], message_count: int) -> Dict[str, Any]:
+        brief = _normalize_variant(parsed, message_count=message_count, field_map=field_map)
+        brief["_variant_fields"] = dict(parsed)
+        return brief
+
+    fingerprint = _stable_fingerprint(name, system_prompt, response_format, schema_delta, field_map)
+    return VariantSpec(name, system_prompt, response_format, normalize, schema_delta, fingerprint)
+
+
+def load_variant(name: str) -> str:
+    """Compatibility helper retained for callers that need only the prompt text."""
+    return load_variant_spec(name).system_prompt
+
+
+def _descriptor_fingerprint(specs: Iterable[VariantSpec]) -> str:
+    return _stable_fingerprint([(spec.name, spec.fingerprint) for spec in specs])
+
+
+def _generate_one(previous: Optional[Dict[str, Any]], delta: List[Dict[str, Any]], *, spec: VariantSpec,
                   model: str, message_count: int) -> Optional[Dict[str, Any]]:
     delta_text = sb._render_turn_delta(delta)
     if not delta_text.strip():
         return None
     messages = sb._build_messages(previous, delta_text)
-    messages[0] = {"role": "system", "content": system_prompt}
-    reply = chat(messages, model=model, max_tokens=sb.BRIEF_MAX_TOKENS, response_format=sb._RESPONSE_FORMAT)
+    messages[0] = {"role": "system", "content": spec.system_prompt}
+    reply = chat(messages, model=model, max_tokens=sb.BRIEF_MAX_TOKENS, response_format=spec.response_format)
     parsed = sb._parse_brief(reply["content"])
     if parsed is None:
         return {"_error": "unparseable", "_raw": reply["content"][:500], "_usage": reply["usage"]}
-    brief = sb.normalize_brief(parsed, message_count=message_count)
+    brief = spec.normalize(parsed, message_count=message_count)
     brief["_usage"] = reply["usage"]
     brief["_latency_s"] = reply["latency_s"]
     return brief
@@ -138,11 +265,15 @@ def _turn_boundaries(messages: List[Dict[str, Any]]) -> List[int]:
     return bounds
 
 
-def generate_fixture(fixture: Dict[str, Any], variant: str, system_prompt: str, model: str, out_dir: Path,
+def generate_fixture(fixture: Dict[str, Any], spec: VariantSpec, model: str, out_dir: Path,
                      snapshots: int) -> Dict[str, Any]:
+    variant = spec.name
     out_path = out_dir / variant / f"{fixture['fixture_id']}.json"
     if out_path.exists():
-        return json.loads(out_path.read_text(encoding="utf-8"))
+        record = json.loads(out_path.read_text(encoding="utf-8"))
+        if record.get("descriptor_fingerprint") != spec.fingerprint:
+            raise ValueError(f"stale descriptor for {variant}/{fixture['fixture_id']}; start a fresh eval run")
+        return record
     messages = fixture["messages"]
     bounds = _turn_boundaries(messages)
     # Sample evenly so long conversations don't dominate the grader bill; the last boundary always counts.
@@ -153,10 +284,13 @@ def generate_fixture(fixture: Dict[str, Any], variant: str, system_prompt: str, 
         picked = bounds
     previous: Optional[Dict[str, Any]] = None
     seen = 0
-    record: Dict[str, Any] = {"fixture_id": fixture["fixture_id"], "variant": variant, "model": model, "snapshots": []}
+    record: Dict[str, Any] = {
+        "fixture_id": fixture["fixture_id"], "variant": variant, "model": model,
+        "descriptor_fingerprint": spec.fingerprint, "snapshots": [],
+    }
     for bound in picked:
         delta = messages[seen:bound]
-        brief = _generate_one(previous, delta, system_prompt=system_prompt, model=model, message_count=bound)
+        brief = _generate_one(previous, delta, spec=spec, model=model, message_count=bound)
         if brief and "_error" not in brief:
             previous = brief
             seen = bound
@@ -237,19 +371,23 @@ def _run(jobs: Iterable, fn, concurrency: int, label: str) -> List[Any]:
 
 def cmd_generate(args: argparse.Namespace) -> int:
     fixtures = _load_corpus(args.corpus, args.limit)
+    specs = [load_variant_spec(name) for name in args.variants]
+    if len({spec.name for spec in specs}) != len(specs):
+        raise SystemExit("variants must be unique")
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
     (out / "run.json").write_text(json.dumps({
         "corpus": str(args.corpus), "variants": args.variants, "model": args.model, "snapshots": args.snapshots,
         "fixtures": [f["fixture_id"] for f in fixtures], "started_at": time.time(),
+        "descriptor_fingerprint": _descriptor_fingerprint(specs),
     }, indent=1), encoding="utf-8")
     jobs = []
-    for variant in args.variants:
-        prompt = load_variant(variant)
+    for spec in specs:
+        variant = spec.name
         (out / variant).mkdir(parents=True, exist_ok=True)
-        (out / variant / "_system_prompt.md").write_text(prompt, encoding="utf-8")
+        (out / variant / "_system_prompt.md").write_text(spec.system_prompt, encoding="utf-8")
         for fixture in fixtures:
-            jobs.append((fixture, variant, prompt, args.model, out, args.snapshots))
+            jobs.append((fixture, spec, args.model, out, args.snapshots))
     results = _run(jobs, generate_fixture, args.concurrency, "generate")
     errors = [r for r in results if "error" in r]
     print(json.dumps({"generated": len(results) - len(errors), "errors": errors[:5]}, indent=1))
@@ -258,6 +396,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
 def cmd_grade(args: argparse.Namespace) -> int:
     run = json.loads((args.out / "run.json").read_text(encoding="utf-8"))
+    specs = [load_variant_spec(name) for name in run["variants"]]
+    descriptor_fingerprint = _descriptor_fingerprint(specs)
+    if run.get("descriptor_fingerprint") != descriptor_fingerprint:
+        raise SystemExit("run descriptor does not match current variant prompts/schemas; regenerate the run")
     corpus = Path(run["corpus"])
     rubric = (HERE / "rubric.md").read_text(encoding="utf-8")
     fixtures = {f["fixture_id"]: f for f in _load_corpus(corpus, None) if f["fixture_id"] in set(run["fixtures"])}
@@ -271,6 +413,9 @@ def cmd_grade(args: argparse.Namespace) -> int:
     for variant in run["variants"]:
         for path in sorted((args.out / variant).glob("*.json")):
             record = json.loads(path.read_text(encoding="utf-8"))
+            spec = next(spec for spec in specs if spec.name == variant)
+            if record.get("descriptor_fingerprint") != spec.fingerprint:
+                raise SystemExit(f"stale descriptor in {path}; regenerate the run")
             fixture = fixtures.get(record["fixture_id"])
             if not fixture:
                 continue

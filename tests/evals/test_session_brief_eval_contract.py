@@ -39,6 +39,54 @@ def test_baseline_variant_is_the_shipped_prompt(runner):
     from agent import session_brief
 
     assert runner.load_variant("baseline") == session_brief._SYSTEM_PROMPT
+    spec = runner.load_variant_spec("baseline")
+    assert spec.response_format is session_brief._RESPONSE_FORMAT
+    assert spec.normalize is session_brief.normalize_brief
+
+
+def test_lane_b_variants_have_distinct_descriptors_and_expected_schema_deltas(runner):
+    names = {
+        "state_first", "delta_first", "blocker_dominant", "minimalist",
+        "enum_state", "decision_pruned", "user_voice", "instruction_only", "evidence_first",
+    }
+    specs = [runner.load_variant_spec(name) for name in sorted(names)]
+    assert {spec.name for spec in specs} == names
+    assert len({spec.fingerprint for spec in specs}) == len(specs)
+    assert runner.load_variant_spec("delta_first").schema_delta["added"] == {
+        "changed": {"type": "array", "items": {"type": "string"}}
+    }
+    assert runner.load_variant_spec("minimalist").schema_delta == {"added": {}, "removed": ["decisions"]}
+    assert set(runner.load_variant_spec("enum_state").schema_delta["added"]) == {"state", "waiting_on"}
+
+
+def test_schema_variant_projects_native_fields_without_losing_them(runner):
+    spec = runner.load_variant_spec("enum_state")
+    brief = spec.normalize({
+        "goal": "choose a plan",
+        "state": "waiting_on_user",
+        "status": "WAITING ON YOU: choose one",
+        "waiting_on": "Choose plan A or B",
+        "completed": ["Compared both plans"],
+        "blockers": [],
+        "decisions": [],
+    }, message_count=12)
+    assert brief["blockers"] == ["Choose plan A or B"]
+    assert brief["_variant_fields"]["state"] == "waiting_on_user"
+    assert brief["message_count"] == 12
+
+
+def test_schema_sidecar_delta_is_fail_fast(runner, tmp_path, monkeypatch):
+    (tmp_path / "bad.md").write_text("prompt", encoding="utf-8")
+    (tmp_path / "bad.schema.json").write_text(json.dumps({
+        "schema_delta": {"added": {}, "removed": []},
+        "schema": {
+            "type": "object", "properties": {"goal": {"type": "string"}},
+            "required": ["goal"], "additionalProperties": False,
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(runner, "VARIANTS", tmp_path)
+    with pytest.raises(SystemExit, match="inaccurate schema_delta"):
+        runner.load_variant_spec("bad")
 
 
 def test_turn_boundaries_follow_completed_assistant_turns(runner):

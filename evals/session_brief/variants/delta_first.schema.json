@@ -1,0 +1,31 @@
+{
+  "schema_delta": {
+    "added": {
+      "changed": {
+        "type": "array",
+        "items": {"type": "string"}
+      }
+    },
+    "removed": []
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "goal": {"type": "string"},
+      "status": {"type": "string"},
+      "changed": {"type": "array", "items": {"type": "string"}},
+      "completed": {"type": "array", "items": {"type": "string"}},
+      "blockers": {"type": "array", "items": {"type": "string"}},
+      "decisions": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["goal", "status", "changed", "completed", "blockers", "decisions"],
+    "additionalProperties": false
+  },
+  "normalization": {
+    "goal": "goal",
+    "status": "status",
+    "completed": "completed",
+    "blockers": "blockers",
+    "decisions": "decisions"
+  }
+}

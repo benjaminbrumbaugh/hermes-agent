@@ -1,0 +1,33 @@
+{
+  "schema_delta": {
+    "added": {
+      "state": {
+        "type": "string",
+        "enum": ["done", "waiting_on_user", "running", "abandoned", "unclear"]
+      },
+      "waiting_on": {"type": "string"}
+    },
+    "removed": []
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "goal": {"type": "string"},
+      "state": {"type": "string", "enum": ["done", "waiting_on_user", "running", "abandoned", "unclear"]},
+      "status": {"type": "string"},
+      "waiting_on": {"type": "string"},
+      "completed": {"type": "array", "items": {"type": "string"}},
+      "blockers": {"type": "array", "items": {"type": "string"}},
+      "decisions": {"type": "array", "items": {"type": "string"}}
+    },
+    "required": ["goal", "state", "status", "waiting_on", "completed", "blockers", "decisions"],
+    "additionalProperties": false
+  },
+  "normalization": {
+    "goal": "goal",
+    "status": "status",
+    "completed": "completed",
+    "blockers": "blockers",
+    "decisions": "decisions"
+  }
+}
