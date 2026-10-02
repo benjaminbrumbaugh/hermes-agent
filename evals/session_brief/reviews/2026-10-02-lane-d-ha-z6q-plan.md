@@ -1,6 +1,6 @@
 # Lane D execution plan — `ha-z6q`
 
-Initial counter: 0  
+Initial counter: 0
 Scope: pairwise vision tournament over the six Lane C render candidates plus the current pane.
 
 ## 1. Full plan, tasks, and subtasks
