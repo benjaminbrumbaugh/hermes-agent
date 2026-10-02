@@ -1,5 +1,6 @@
 import { useStore } from '@nanostores/react'
 import { computed } from 'nanostores'
+import type { ReactNode } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
 import { useI18n } from '@/i18n'
@@ -14,12 +15,10 @@ import { SidebarPanelLabel } from '../shell/sidebar-label'
 
 import { RightSidebarSectionHeader } from './index'
 
-/** The brief for the session the user is looking at (stored id; lineage aliases already fanned out). */
 const $activeBrief = computed([$briefsBySession, $selectedStoredSessionId], (briefs, storedId) =>
   storedId ? (briefs[storedId] ?? null) : null
 )
 
-/** Live task list for the active runtime session — the same feed the composer status stack renders. */
 const $activeTodos = computed([$todosBySession, $activeSessionId], (todos, runtimeId): TodoItem[] =>
   runtimeId ? (todos[runtimeId] ?? []) : []
 )
@@ -39,10 +38,7 @@ export function BriefPane() {
 
   if (!brief) {
     return (
-      <aside
-        aria-label={b.aria}
-        className="flex h-full w-full min-w-0 flex-col items-center justify-center gap-1 px-4 text-center"
-      >
+      <aside aria-label={b.aria} className="flex h-full w-full min-w-0 flex-col items-center justify-center gap-1 px-4 text-center">
         <SidebarPanelLabel className="pl-0 text-(--ui-text-quaternary)">{b.emptyTitle}</SidebarPanelLabel>
         <p className="text-xs text-(--ui-text-quaternary)">{b.emptyBody}</p>
       </aside>
@@ -50,6 +46,7 @@ export function BriefPane() {
   }
 
   const openTodos = todos.filter(todo => todo.status !== 'cancelled')
+  const hasBlockers = brief.blockers.length > 0
 
   return (
     <aside aria-label={b.aria} className="flex h-full w-full min-w-0 flex-col overflow-hidden">
@@ -60,69 +57,48 @@ export function BriefPane() {
         </span>
       </RightSidebarSectionHeader>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pb-4 text-xs text-(--ui-text-secondary)">
-        <Section title={b.goal}>
-          <p className="font-medium text-(--ui-text-primary)">{brief.goal}</p>
-        </Section>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 text-xs text-(--ui-text-secondary)">
+        <div className="border-b border-(--ui-stroke-tertiary) py-3">
+          <div className="flex items-center gap-2">
+            <Codicon className={cn('shrink-0', hasBlockers ? 'text-(--ui-orange)' : 'text-(--theme-primary)')} name={hasBlockers ? 'warning' : 'pulse'} size="1rem" />
+            <span className="text-[0.6875rem] font-semibold tracking-wide uppercase text-(--ui-text-quaternary)">{b.status}</span>
+          </div>
+          <p className="mt-1 font-medium leading-snug text-(--ui-text-primary)">{brief.status}</p>
+          <p className="mt-3 leading-snug"><span className="font-semibold text-(--ui-text-quaternary)">{b.goal}: </span>{brief.goal}</p>
+        </div>
 
-        <Section title={b.status}>
-          <p>{brief.status}</p>
-        </Section>
-
-        {brief.blockers.length > 0 && (
-          <Section accent title={b.blockers}>
+        {hasBlockers && (
+          <LedgerSection accent title={b.blockers}>
             <List icon="warning" items={brief.blockers} />
-          </Section>
+          </LedgerSection>
         )}
 
         {openTodos.length > 0 && (
-          <Section title={b.tasks}>
-            <ul className="flex flex-col gap-1">
-              {todoTree(openTodos).map(([todo, depth]) => (
-                <li
-                  className={cn('flex items-start gap-1.5', todo.status === 'completed' && 'text-(--ui-text-quaternary)')}
-                  key={todo.id}
-                  style={{ paddingLeft: `${depth * 0.75}rem` }}
-                >
-                  <Codicon className="mt-0.5 shrink-0" name={TODO_ICON[todo.status]} size="0.75rem" />
-                  <span className={cn(todo.status === 'completed' && 'line-through')}>{todo.content}</span>
-                </li>
-              ))}
-            </ul>
-          </Section>
+          <LedgerSection title={b.tasks}>
+            <TodoList todos={openTodos} />
+          </LedgerSection>
         )}
 
         {brief.completed.length > 0 && (
-          <Section title={b.completed}>
-            <List icon="check" items={brief.completed} />
-          </Section>
+          <LedgerSection title={b.completed}>
+            <List icon="pass-filled" items={brief.completed} muted />
+          </LedgerSection>
         )}
 
         {brief.decisions.length > 0 && (
-          <Section title={b.decisions}>
+          <LedgerSection title={b.decisions}>
             <List icon="git-commit" items={brief.decisions} />
-          </Section>
+          </LedgerSection>
         )}
       </div>
     </aside>
   )
 }
 
-interface SectionProps {
-  accent?: boolean
-  children: React.ReactNode
-  title: string
-}
-
-function Section({ accent, children, title }: SectionProps) {
+function LedgerSection({ accent, children, title }: { accent?: boolean; children: ReactNode; title: string }) {
   return (
-    <section className="flex flex-col gap-1">
-      <h3
-        className={cn(
-          'text-[0.6875rem] font-semibold tracking-wide uppercase',
-          accent ? 'text-(--ui-orange)' : 'text-(--ui-text-quaternary)'
-        )}
-      >
+    <section className="border-b border-(--ui-stroke-tertiary) py-3 last:border-b-0">
+      <h3 className={cn('mb-1 text-[0.6875rem] font-semibold tracking-wide uppercase', accent ? 'text-(--ui-orange)' : 'text-(--ui-text-quaternary)')}>
         {title}
       </h3>
       {children}
@@ -130,18 +106,27 @@ function Section({ accent, children, title }: SectionProps) {
   )
 }
 
-interface ListProps {
-  icon: string
-  items: readonly string[]
-}
-
-function List({ icon, items }: ListProps) {
+function List({ icon, items, muted = false }: { icon: string; items: readonly string[]; muted?: boolean }) {
   return (
-    <ul className="flex flex-col gap-1">
-      {items.map((item, i) => (
-        <li className="flex items-start gap-1.5" key={`${i}-${item}`}>
+    <ol className={cn('flex flex-col gap-1', muted && 'text-(--ui-text-tertiary)')}>
+      {items.map((item, index) => (
+        <li className="flex items-start gap-1.5 leading-snug" key={`${index}-${item}`}>
+          <span className="flex size-3.5 shrink-0 items-center justify-center text-[0.625rem] text-(--ui-text-quaternary)">{index + 1}</span>
           <Codicon className="mt-0.5 shrink-0 text-(--ui-text-quaternary)" name={icon} size="0.75rem" />
           <span>{item}</span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function TodoList({ todos }: { todos: TodoItem[] }) {
+  return (
+    <ul className="flex flex-col gap-1">
+      {todoTree(todos).map(([todo, depth]) => (
+        <li className="flex items-start gap-1.5 leading-snug" key={todo.id} style={{ paddingLeft: `${depth * 0.75}rem` }}>
+          <Codicon className="mt-0.5 shrink-0" name={TODO_ICON[todo.status]} size="0.75rem" />
+          <span className={cn(todo.status === 'completed' && 'text-(--ui-text-quaternary) line-through')}>{todo.content}</span>
         </li>
       ))}
     </ul>
