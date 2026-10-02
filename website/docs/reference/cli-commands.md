@@ -32,6 +32,7 @@ hermes [global-options] <command> [subcommand/options]
 | `--worktree`, `-w` | Start in an isolated git worktree for parallel-agent workflows. |
 | `--yolo` | Bypass dangerous-command approval prompts. |
 | `--pass-session-id` | Include the session ID in the agent's system prompt. |
+| `--no-fallback` | Classic CLI session: disable configured primary provider/model fallback (auxiliary policy is unchanged). |
 | `--ignore-user-config` | Ignore `~/.hermes/config.yaml` and fall back to built-in defaults. Credentials in `.env` are still loaded. |
 | `--ignore-rules` | Skip auto-injection of `AGENTS.md`, `SOUL.md`, `.cursorrules`, memory, and preloaded skills. |
 | `--tui` | Launch the [TUI](../user-guide/tui.md) instead of the classic CLI. Equivalent to `HERMES_TUI=1`. Always wins over `display.interface`. |
@@ -138,6 +139,7 @@ Common options:
 | `--checkpoints` | Enable filesystem checkpoints before destructive file changes. |
 | `--yolo` | Skip approval prompts. |
 | `--pass-session-id` | Pass the session ID into the system prompt. |
+| `--no-fallback` | Disable configured primary provider/model fallback for this classic CLI session. Auxiliary policy is unchanged. |
 | `--ignore-user-config` | Ignore `~/.hermes/config.yaml` and use built-in defaults. Credentials in `.env` are still loaded. Useful for isolated CI runs, reproducible bug reports, and third-party integrations. |
 | `--ignore-rules` | Skip auto-injection of `AGENTS.md`, `SOUL.md`, `.cursorrules`, persistent memory, and preloaded skills. Combine with `--ignore-user-config` for a fully isolated run. |
 | `--safe-mode` | Troubleshooting mode: disable ALL customizations — user config, rules/memory injection, plugins, shell hooks, and MCP servers (implies `--ignore-user-config` and `--ignore-rules`). Use to isolate whether a problem comes from your setup or from Hermes itself. |
@@ -158,6 +160,30 @@ hermes chat --worktree -q "Review this repo and open a PR"
 hermes chat --ignore-user-config --ignore-rules -q "Repro without my personal setup"
 hermes chat --safe-mode -q "Is this bug mine or Hermes'?"
 ```
+
+### `--no-fallback` — primary inference session policy
+
+For an integration that must not fail over to another configured provider or model:
+
+```bash
+hermes chat --cli --no-fallback --provider openai-codex --model gpt-5.4 -Q -q "Reply briefly"
+```
+
+The boolean flag is session-only, never saved to config. It overrides both
+`fallback_providers` and legacy `fallback_model`, including managed overlays,
+per-turn refresh, agent rebuilds and startup authentication recovery. Without the
+flag, normal refresh still adopts config edits and retains the last good chain
+on torn YAML. `--ignore-user-config` also prevents CLI primary fallback refresh
+from reading user config or managed overlays.
+
+This is not an account pin or a blanket network-isolation policy. Supply an
+explicit `--provider` and `--model` rather than relying on `auto` discovery.
+Same-provider retries, credential-pool rotation, model normalization, auxiliary
+models/tools and their independent fallback policies are unchanged. The flag
+applies to the classic CLI (`--cli`), including `chat -q`/`-Q`; TUI and the separate
+`-z` runner reject it with exit code 2 rather than silently ignoring it. Older
+Hermes versions reject the unknown flag; callers must not retry without it.
+Install code containing this flag and start a new process before relying on it.
 
 ### `--format stream-json` — structured JSONL output
 
