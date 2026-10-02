@@ -1,0 +1,26 @@
+{
+  "source": "Lane A baseline generation + grader at /Users/benjaminbrumbaugh/Documents/Hermes-Agent/temp/session-brief-eval/ha-dab/baseline",
+  "selection": "20 unique snapshots: one done, waiting_on_user, running, and abandoned row in each short, medium, long, pivot, and handoff bucket",
+  "fixtures": [
+    { "fixture_id": "20260807_143645_b7d381", "message_count": 24, "truth_state": "done", "buckets": ["short", "pivot"], "selected_bucket": "short" },
+    { "fixture_id": "20260806_161409_bfabbe", "message_count": 22, "truth_state": "waiting_on_user", "buckets": ["short"], "selected_bucket": "short" },
+    { "fixture_id": "20260814_110332_5e05e2", "message_count": 4, "truth_state": "running", "buckets": ["short", "pivot"], "selected_bucket": "short" },
+    { "fixture_id": "20260814_112824_8a0080", "message_count": 118, "truth_state": "abandoned", "buckets": ["short", "pivot"], "selected_bucket": "short" },
+    { "fixture_id": "20260818_124055_f80aaa", "message_count": 24, "truth_state": "done", "buckets": ["medium", "pivot"], "selected_bucket": "medium" },
+    { "fixture_id": "20260920_013343_700d78", "message_count": 306, "truth_state": "waiting_on_user", "buckets": ["medium", "pivot", "handoff"], "selected_bucket": "medium" },
+    { "fixture_id": "20260814_000655_44953f", "message_count": 1, "truth_state": "running", "buckets": ["medium", "pivot"], "selected_bucket": "medium" },
+    { "fixture_id": "20260818_124055_f80aaa", "message_count": 342, "truth_state": "abandoned", "buckets": ["medium", "pivot"], "selected_bucket": "medium" },
+    { "fixture_id": "20260830_153142_7ee242", "message_count": 6, "truth_state": "done", "buckets": ["long", "handoff"], "selected_bucket": "long" },
+    { "fixture_id": "20260901_163312_153a5d", "message_count": 83, "truth_state": "waiting_on_user", "buckets": ["long"], "selected_bucket": "long" },
+    { "fixture_id": "20260830_152450_0eaada", "message_count": 67, "truth_state": "running", "buckets": ["long"], "selected_bucket": "long" },
+    { "fixture_id": "20260903_124435_cd8638", "message_count": 129, "truth_state": "abandoned", "buckets": ["long", "pivot", "handoff"], "selected_bucket": "long" },
+    { "fixture_id": "20260814_110332_5e05e2", "message_count": 15, "truth_state": "done", "buckets": ["short", "pivot"], "selected_bucket": "pivot" },
+    { "fixture_id": "20260814_110332_5e05e2", "message_count": 1, "truth_state": "waiting_on_user", "buckets": ["short", "pivot"], "selected_bucket": "pivot" },
+    { "fixture_id": "20260814_110332_5e05e2", "message_count": 9, "truth_state": "running", "buckets": ["short", "pivot"], "selected_bucket": "pivot" },
+    { "fixture_id": "20260814_112824_8a0080", "message_count": 156, "truth_state": "abandoned", "buckets": ["short", "pivot"], "selected_bucket": "pivot" },
+    { "fixture_id": "20260822_231518_9853a4", "message_count": 16, "truth_state": "done", "buckets": ["short", "pivot", "handoff"], "selected_bucket": "handoff" },
+    { "fixture_id": "20260822_231518_9853a4", "message_count": 50, "truth_state": "waiting_on_user", "buckets": ["short", "pivot", "handoff"], "selected_bucket": "handoff" },
+    { "fixture_id": "20260824_133939_a91599", "message_count": 56, "truth_state": "running", "buckets": ["short", "handoff"], "selected_bucket": "handoff" },
+    { "fixture_id": "20260824_133939_a91599", "message_count": 391, "truth_state": "abandoned", "buckets": ["short", "handoff"], "selected_bucket": "handoff" }
+  ]
+}
