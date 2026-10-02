@@ -1,0 +1,97 @@
+{
+  "_edge_semantics": "from_key DEPENDS ON to_key (bd stores blocks edges inverted from the natural reading). Verify with `bd ready` after mint: only the epic and lane-a may be ready.",
+  "commit_message": "session-brief glance design convoy",
+  "nodes": [
+    {
+      "key": "epic",
+      "type": "epic",
+      "priority": 1,
+      "title": "Session Brief: redesign the right-sidebar brief as a glanceable status instrument",
+      "labels": ["session-brief", "desktop", "design-program"],
+      "description": "Plan: evals/session_brief/PLAN.md (read first, every lane). Oracle: evals/session_brief/README.md. Rubric: evals/session_brief/rubric.md.\n\nThe brief must let a returning user answer DONE / WAITING ON ME (on what) / RUNNING / ABOUT WHAT in ~2 s without reading. Ship decision = `evals/session_brief/report.py` thresholds + human glance test, never a reviewer verdict alone.\n\nFrozen rules (PLAN.md): human-only sidecar, never in the model prompt; backend authoritative; strict JSON contract; one aux call per completed turn, iterative; config stays `auxiliary.session_brief`; scope limited to agent/session_brief.py, hermes_state_brief.py, tui_gateway/contracts/common.py::SessionBrief, apps/desktop/src/app/right-sidebar/brief.tsx, apps/desktop/src/store/session-brief.ts, i18n strings, evals/session_brief/.\n\nShared inputs (read-only, real data, gitignored, absolute paths): corpus /Users/benjaminbrumbaugh/Documents/Hermes-Agent/temp/session-brief-corpus ; eval runs under /Users/benjaminbrumbaugh/Documents/Hermes-Agent/temp/session-brief-eval/<run>. Write your run outputs to temp/session-brief-eval/<your-bead-id>/ in that same tree so other lanes can read them; never commit anything from temp/.\n\nModel: stealth/space-bunny-alpha via OpenRouter (key in ~/.hermes/.env), up to 256 concurrent. Python: /Users/benjaminbrumbaugh/Documents/Hermes-Agent/.venv/bin/python. Tests: scripts/run_tests.sh (never bare pytest); desktop: cd apps/desktop && npx tsc -p . --noEmit && npx eslint <files> && npx vitest run <files>.\n\nBranch from origin/main_plus_our_prs. PRs target benjaminbrumbaugh/hermes-agent main_plus_our_prs (use --repo explicitly; the upstream remote is NousResearch)."
+    },
+    {
+      "key": "lane-a",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane A: full-corpus baseline + rubric/grader calibration (freeze rubric v1)",
+      "labels": ["session-brief", "lane-a"],
+      "description": "Read: evals/session_brief/PLAN.md, README.md, rubric.md, runner.py, report.py; AGENTS.md (root).\n\n1. Run the baseline on the FULL corpus: `runner.py generate --corpus <corpus> --variants baseline --out temp/session-brief-eval/<bead>/baseline --snapshots 6 --concurrency 128`, then `grade`, then `report.py ... --worst 20 --json temp/session-brief-eval/<bead>/baseline/scorecard.json`.\n2. Human-verify the grader: for the 20 worst rows, open the fixture transcript up to message_count and decide whether each cited failure is REAL. Record per row: real / grader-wrong / rubric-ambiguous, with the transcript line that decides it.\n3. Fix the GRADER or RUBRIC only where the grader is wrong or the rubric ambiguous — never soften a rubric item because the baseline fails it. Rubric edits must keep report.py thresholds in sync (tests/evals/test_session_brief_eval_contract.py enforces).\n4. Re-run grade on the same generations (grades.jsonl is append-only per snapshot key; delete it to regrade). Report before/after scorecards.\n5. Also render the baseline: `node evals/session_brief/render.mjs --fixtures <out>/baseline --out <out>/renders` so Lane C has reference PNGs of the current pane.\n\nOwns: evals/session_brief/rubric.md, runner.py (grader prompt only), report.py, README.md. Does NOT touch agent/session_brief.py or brief.tsx.\n\nAcceptance: scorecard.json committed-shape output present in temp (not git); calibration notes as evals/session_brief/reviews/<date>-lane-a-calibration.md (committed, no transcript text — fixture ids + message_count + verdicts only); rubric v1 tagged in PLAN.md status line; PR merged."
+    },
+    {
+      "key": "lane-b",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane B: content-contract variants — 8 competing prompts/schemas, full-corpus eval",
+      "labels": ["session-brief", "lane-b"],
+      "description": "Read: PLAN.md, rubric.md (v1 from Lane A), agent/session_brief.py (the production prompt, schema, iterative update), Lane A's scorecard (temp/session-brief-eval/<lane-a bead>/baseline/scorecard.json) and worst rows.\n\nYou are the manager of this lane: fan out to 8 independent authors (subagents or sequential personas with distinct theses) — e.g. state-first ('the first line IS the answer'), delta-first (what changed since last look), blocker-dominant, minimalist (3 fields), schema-with-enum-state (`state: done|waiting|running|abandoned` + `waiting_on`), decision-pruned, user-voice, and one that keeps the current schema but rewrites instructions only. Each author writes evals/session_brief/variants/<name>.md (whole system prompt) + a header comment with its thesis and, if it needs schema changes, the exact JSON schema delta (fields added/removed) in evals/session_brief/variants/<name>.schema.json.\n\nIMPORTANT: runner.py currently swaps the system prompt only. If a variant needs a schema delta, extend runner.py so a variant can carry its own response_format schema and normalize function (keep baseline bit-identical to production; contract test must stay green).\n\nRun all variants + baseline on the full corpus (generate + grade + report). Deliver evals/session_brief/reviews/<date>-lane-b-variants.md: scorecard table (paste report.py output verbatim), per-variant thesis, what each variant uniquely wins/loses, and your recommendation of ONE content contract (prompt + schema) with evidence. Do not integrate into agent/session_brief.py — that is Lane E.\n\nOwns: evals/session_brief/variants/*, runner.py (variant loading only). Acceptance: ≥ 8 variants evaluated on the full corpus; report shows at least one variant with mean_glance ≥ 4.0; review doc merged."
+    },
+    {
+      "key": "lane-c",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane C: 6 independent render candidates for BriefPane, screenshot on a fixed fixture set",
+      "labels": ["session-brief", "lane-c", "desktop"],
+      "description": "Read: PLAN.md, rubric.md, apps/desktop/AGENTS.md, apps/desktop/DESIGN.md, apps/desktop/src/app/right-sidebar/brief.tsx (current), apps/desktop/src/app/brief-fixture/brief-fixture-root.tsx (render harness), evals/session_brief/render.mjs, Lane A's baseline renders.\n\nYou manage 6 independent designers. Each delivers, on its own branch `brief-design/<name>` from origin/main_plus_our_prs: a complete replacement `brief.tsx` (may add sibling files under right-sidebar/), any i18n keys (en + fr/de/es/ar), and a one-page rationale `evals/session_brief/reviews/<date>-design-<name>.md` naming which rubric failure modes the LAYOUT defeats (e.g. state.buried via a state badge; waiting.vague via a blocker callout; density via truncation/expansion). Designers may assume the schema Lane B is converging on; if a design NEEDS a field, say so explicitly and render with the field present in fixtures.\n\nFixed fixture set: choose 20 snapshots from Lane A's baseline generations spanning all buckets and all four truth states; write the list to evals/session_brief/reviews/<date>-design-fixtures.json (fixture_id + message_count) so every candidate renders the SAME inputs. Render every candidate with render.mjs at --width 280, 320, 400, --mode dark and light. Output PNGs to temp/session-brief-eval/<bead>/renders/<name>/.\n\nEvery candidate must pass tsc + eslint + existing right-sidebar/brief tests, respect DESIGN.md tokens (no hardcoded colors), and keep the pane usable at 280 px. Owns: brief.tsx and new siblings, i18n keys. Does NOT change stores, contracts, or the generator.\n\nAcceptance: 6 branches pushed; 6 × 20 × 6 PNG sets in temp; design-fixtures.json + 6 rationales merged (docs-only PR)."
+    },
+    {
+      "key": "lane-d",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane D: pairwise vision tournament over render candidates (+ current pane)",
+      "labels": ["session-brief", "lane-d"],
+      "description": "Read: PLAN.md, rubric.md, Lane C's design-fixtures.json and renders under temp/session-brief-eval/<lane-c bead>/renders/.\n\nBuild evals/session_brief/tournament.py: for each fixture and width/mode, present PAIRS of candidate PNGs (the *.glance.png first-240px crop AND the full PNG) to a vision grader with the transcript-truth for that snapshot (from Lane A grades.jsonl: truth.state / waiting_on / topic). Prompt: 'Which panel lets a user answer done / waiting-on-me(on what) / running / topic FASTER and CORRECTLY? Point at the region that decides it. Reply {winner, confidence, reason, decisive_region}.' Randomize left/right; Swiss-system rounds so every candidate meets every other at least twice per fixture class; compute Elo per candidate per width; a second model family (claude or codex CLI, per the adversarial-plan-review skill's model list) grades the final round only. Include the CURRENT pane as a candidate so improvement is measured, not assumed.\n\nOutput temp/session-brief-eval/<bead>/tournament.json + evals/session_brief/reviews/<date>-lane-d-tournament.md with the Elo table (script output pasted verbatim), the winner, and the VERIFIED findings from losing designs worth folding in (each with the PNG + region that proves it). Grader claims are claims: spot-check 10 pairwise verdicts by eye and record agreement.\n\nOwns: evals/session_brief/tournament.py, the review doc. Acceptance: every candidate ≥ 40 comparisons per width; winner beats current by > 100 Elo with both grader families agreeing, OR the doc states clearly that no candidate beats current (also a valid result)."
+    },
+    {
+      "key": "lane-e",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane E: integrate winning content contract + winning render; regenerate contracts; full eval re-run",
+      "labels": ["session-brief", "lane-e"],
+      "description": "Read: PLAN.md, Lane B recommendation (reviews/*-lane-b-variants.md), Lane D result (reviews/*-lane-d-tournament.md), agent/session_brief.py, hermes_state_brief.py, tui_gateway/contracts/common.py::SessionBrief, apps/desktop/src/store/session-brief.ts, the winning brief.tsx branch. Skill: hermes-core-feature-development (contracts regen flow).\n\nOn branch `session-brief/v2` from origin/main_plus_our_prs: adopt the recommended prompt + schema into agent/session_brief.py (bump BRIEF_VERSION; normalize_brief handles v1 rows already stored — a v1 brief must still render, never crash); update SessionBrief contract + `scripts/gen_gateway_contracts.py` regen; update store type guards; merge the winning brief.tsx and fold Lane D's verified findings; i18n all locales; update website/docs/user-guide/configuration.md if config shape changed.\n\nThen prove it: `runner.py generate --variants baseline` (baseline now == the new production prompt by construction) on the full corpus + grade + report → scorecard must say ships:true. Render 20 design fixtures with the integrated pane. Backend tests (tests/agent/test_session_brief.py, tests/hermes_state/test_session_brief.py, tests/tui_gateway/contracts/, tests/evals/) and desktop tsc/eslint/vitest green.\n\nOwns: everything in the frozen scope list. Acceptance: scorecard ships:true pasted in the PR body; PR opened (not merged — Lane F reviews it)."
+    },
+    {
+      "key": "lane-f",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane F: adversarial multi-family review rounds + confirmation gate on the integrated PR",
+      "labels": ["session-brief", "lane-f", "review"],
+      "description": "Read: skill `adversarial-plan-review` (procedure + references/review-briefs.md) and `multi-model-adversarial-review`; PLAN.md; Lane E's PR.\n\nRun serial rounds of PARALLEL read-only reviews across ≥ 2 model families (Claude Code `claude -p --model opus`, Codex `codex exec -m gpt-6-astra` / `gpt-5.6-terra`, Space Bunny with the PNGs for the visual axis). Brief per round in evals/session_brief/reviews/<date>-lane-f/briefN.md. Attack axes: (R1) rubric regressions the scorecard could hide — grader blind spots, snapshot sampling bias; v1→v2 brief compatibility; prompt-caching invariant (nothing of the brief reaches the model prompt); contract/TS drift; i18n completeness; 280 px rendering; (R2) over-cut check + fact-check every claim in the PR body against the diff; (R3) ship-blockers only. Every finding: claim / evidence file:line or PNG+region / change / severity. VERIFY each finding yourself before accepting; reject in writing with reason. Integrate accepted findings onto the PR branch. Stop when a round rejects nothing, then run the confirmation gate (CONFIRMED | CONFIRMED-WITH-NITS | NOT-CONFIRMED). Append the review record to PLAN.md § Adversarial review record and archive briefs + raw reviews under evals/session_brief/reviews/<date>-lane-f/.\n\nOwns: review docs; small fixes on the PR branch. Acceptance: confirmation gate CONFIRMED or nits-only from ≥ 2 families; all tests green on the final SHA; PR ready for Lane G/H."
+    },
+    {
+      "key": "lane-g",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane G: human glance test — prepare the 10-fixture flash deck and scorer (user runs it)",
+      "labels": ["session-brief", "lane-g"],
+      "description": "Read: PLAN.md § Lanes G and § Completion evidence; Lane D fixtures; Lane E's integrated renders.\n\nBuild evals/session_brief/glance_test.html (static, no server): shows one integrated-pane PNG for 2 s, then four questions (state: done/waiting/running/abandoned; waiting_on free text; topic free text; confidence), 10 fixtures spanning the four truth states, randomized order, results downloadable as JSON. Build evals/session_brief/glance_score.py: scores the JSON against truth (from grades.jsonl) → % correct per question, prints the table. Pre-fill the deck from temp renders by a build step (`glance_test.py build --renders <dir> --out temp/.../glance/`), so no PNG is committed.\n\nThis lane PREPARES the test; the user takes it. Leave the exact one-line invocation on this bead's notes for the user. Owns: glance_test.html/py, glance_score.py. Acceptance: deck builds from Lane E renders; scorer verified against a synthetic answers file; instructions on the bead."
+    },
+    {
+      "key": "lane-h",
+      "parent_key": "epic",
+      "type": "task",
+      "priority": 1,
+      "title": "Lane H: ship — merge the confirmed PR, update PLAN.md status/completion evidence",
+      "labels": ["session-brief", "lane-h"],
+      "description": "Read: PLAN.md § Completion evidence; Lane F confirmation record; Lane G result (the user posts glance-test score on this bead or Lane G's).\n\nPreconditions (all must be true, verify yourself): report.py ships:true on the final SHA; Lane F CONFIRMED/nits-only; glance test ≥ 90 % (if the user has not run it, STOP and leave a note — do not merge without it). Rebase the PR onto current origin/main_plus_our_prs, re-run backend + desktop gates, merge (rebase-merge, --repo benjaminbrumbaugh/hermes-agent), delete the branch. Update PLAN.md: status → shipped with SHA, paste final scorecard + Elo + glance result under Completion evidence, and list the not-proved items. Close with the merge SHA.\n\nOwns: PLAN.md, the merge. Does NOT rebuild or install the desktop app — the in-app updater does that."
+    }
+  ],
+  "edges": [
+    { "from_key": "lane-b", "to_key": "lane-a", "type": "blocks" },
+    { "from_key": "lane-c", "to_key": "lane-a", "type": "blocks" },
+    { "from_key": "lane-d", "to_key": "lane-c", "type": "blocks" },
+    { "from_key": "lane-e", "to_key": "lane-b", "type": "blocks" },
+    { "from_key": "lane-e", "to_key": "lane-d", "type": "blocks" },
+    { "from_key": "lane-f", "to_key": "lane-e", "type": "blocks" },
+    { "from_key": "lane-g", "to_key": "lane-e", "type": "blocks" },
+    { "from_key": "lane-h", "to_key": "lane-f", "type": "blocks" },
+    { "from_key": "lane-h", "to_key": "lane-g", "type": "blocks" }
+  ]
+}

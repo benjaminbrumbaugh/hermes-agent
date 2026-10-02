@@ -4,7 +4,7 @@
 > prompt/schema (`agent/session_brief.py`), ONE store. No design system, no new RPC, no new core tool, nothing
 > injected into the model prompt. Every lane names its consumer; every number comes from a checked-in script.
 
-**Status:** Phase 0 complete (oracle built, baseline measured on a smoke slice). Convoy not yet minted.
+**Status:** Phase 0 complete; convoy minted 2026-10-02 as epic `ha-7nh` (lanes ha-rvo A, ha-bj0 B, ha-dab C, ha-z6q D, ha-lt6 E, ha-fsd F, ha-0ba G, ha-4lv H). Re-mint artifact: `graph-plan.json`.
 
 ## Goal
 
