@@ -619,9 +619,9 @@ export function toggleRightSide() {
     return
   }
 
-  const group = rightSideGroup()
+  const groups = rightSideGroups()
 
-  if (!group) {
+  if (groups.length === 0) {
     // No foldable column on the right (terminal-on-bottom, a nested right
     // split): fall back to the semantic side collapse, never the left side.
     toggleFileBrowserOpen()
@@ -629,8 +629,12 @@ export function toggleRightSide() {
     return
   }
 
-  if (rightSideShown(group)) {
-    setTreeGroupMinimized(group.id, true)
+  const shown = groups.filter(rightSideShown)
+
+  if (shown.length > 0) {
+    for (const group of shown) {
+      setTreeGroupMinimized(group.id, true)
+    }
 
     return
   }
@@ -638,8 +642,8 @@ export function toggleRightSide() {
   // Hidden — minimized, or its side collapsed by the side's owner (the files
   // toggle, or the sidebar when flipped). Reopen through that owner so the
   // store the titlebar reads agrees (revealTreePane deliberately never writes
-  // it), then restore the zone like its rail/chevron does.
-  const pane = group.active ?? group.panes[0]
+  // it), then restore the zones like their rail/chevron does.
+  const pane = groups[0].active ?? groups[0].panes[0]
   const side = paneRootSide(pane)
 
   if (side && $collapsedTreeSides.get().has(side)) {
@@ -648,33 +652,47 @@ export function toggleRightSide() {
     openSide(true)
   }
 
-  restoreTreePane(pane)
+  for (const group of groups) {
+    if (shownPanesInGroup(group).length > 0) {
+      restoreTreePane(group.active ?? group.panes[0])
+    }
+  }
 }
 
 // ⌘J's dispatch gate, from the same resolution the toggle mutates through
 // (plus the semantic right side it falls back to). False only when nothing
 // lives on the right, so ⌘J can fall to the terminal instead.
 export function layoutHasRightSide(): boolean {
-  return rightSideGroup() !== null || layoutHasRootSide('right')
+  return rightSideGroups().length > 0 || layoutHasRootSide('right')
 }
 
-// The POSITIONAL right side, derived from the live tree: the outermost
-// root-row column, when it is a leaf group physically right of main. Unlike
-// the semantic `paneRootSide` (which sees only placement-tagged side panes),
-// this ALSO catches a preview-tile column (the Browser): its panes register
+// The POSITIONAL right side, derived from the live tree: every root-row leaf
+// column physically right of the last main column. Unlike the semantic
+// `paneRootSide` (which sees only placement-tagged side panes), this ALSO
+// catches a preview-tile column (the Browser): its panes register
 // `placement: 'main'`, so the semantic walk classifies their zone as main.
-// Null when main is outermost (never reach past it into the left side) or the
-// right is a nested split (folding one inner zone would strand the rest) —
-// callers fall back to the semantic side collapse there.
-function rightSideGroup(): GroupNode | null {
+// All columns, not just the outermost: a plugin column (Bots routines) docked
+// past the Brief/Files column must not swallow the toggle and leave the
+// visible column untouched. Empty when main is outermost (never reach past it
+// into the left side) or a right column is a nested split (folding one inner
+// zone would strand the rest) — callers fall back to the semantic side
+// collapse there.
+function rightSideGroups(): GroupNode[] {
   const row = rootRow()
-  const edge = row?.children.at(-1)
 
-  if (!row || edge?.type !== 'group' || edge.panes.some(isMainSurface)) {
-    return null
+  if (!row) {
+    return []
   }
 
-  return row.children.some(child => allPaneIds(child).some(isMainSurface)) ? edge : null
+  const lastMain = row.children.findLastIndex(child => allPaneIds(child).some(isMainSurface))
+
+  if (lastMain < 0) {
+    return []
+  }
+
+  const right = row.children.slice(lastMain + 1)
+
+  return right.every(child => child.type === 'group') ? (right as GroupNode[]) : []
 }
 
 // Is the zone actually on screen? `minimized` alone isn't the whole state: a
