@@ -78,6 +78,9 @@ if (winParam === 'overlay') {
   void import('./app/quick-entry/quick-entry-root').then(({ mountQuickEntry }) => mountQuickEntry())
 } else if (winParam === 'wake') {
   void import('./app/wake-indicator/wake-indicator-root').then(({ mountWakeIndicator }) => mountWakeIndicator())
+} else if (winParam === 'brief-fixture' && import.meta.env.DEV) {
+  // Design-eval render harness (evals/session_brief/); dev server only, never a packaged window.
+  void import('./app/brief-fixture/brief-fixture-root').then(({ mountBriefFixture }) => mountBriefFixture())
 } else {
   // CSS animations do not inherit Chromium's JS-loop pause policy. Mirror the
   // main window's visibility state to :root so decorative infinite
