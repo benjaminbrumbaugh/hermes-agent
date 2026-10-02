@@ -197,6 +197,8 @@ def _add_top_level_flags(parser: argparse.ArgumentParser) -> None:
               help="Bypass all dangerous command approval prompts (use at your own risk)")
     inherited(parser, "--pass-session-id", action="store_true", default=False,
               help="Include the session ID in the agent's system prompt")
+    inherited(parser, "--no-fallback", action="store_true", default=False,
+              help="Disable primary provider/model fallback for this classic CLI session (auxiliary policy is unchanged)")
     inherited(parser, "--ignore-user-config", action="store_true", default=False,
               help=f"Ignore {_cfg_path()} and fall back to built-in defaults (credentials in .env are still loaded)")
     inherited(parser, "--ignore-rules", action="store_true", default=False,
@@ -300,6 +302,8 @@ def _build_chat_parser(subparsers) -> argparse.ArgumentParser:
               help="Bypass all dangerous command approval prompts (use at your own risk)")
     inherited(chat_parser, "--pass-session-id", action="store_true", default=SUPPRESS,
               help="Include the session ID in the agent's system prompt")
+    inherited(chat_parser, "--no-fallback", action="store_true", default=SUPPRESS,
+              help="Disable primary provider/model fallback for this classic CLI session (auxiliary policy is unchanged)")
     inherited(chat_parser, "--ignore-user-config", action="store_true", default=SUPPRESS,
               help=f"Ignore {_cfg_path()} and fall back to built-in defaults (credentials in .env are still loaded). Useful for isolated CI runs, reproduction, and third-party integrations.")
     inherited(chat_parser, "--ignore-rules", action="store_true", default=SUPPRESS,

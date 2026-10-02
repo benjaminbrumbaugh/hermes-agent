@@ -4,6 +4,7 @@ imported lazily inside each method (import cycle)."""
 
 from __future__ import annotations
 
+import os
 import sys
 
 from rich.markup import escape as _escape
@@ -28,6 +29,11 @@ def _single_query_clarify_callback(question: str, choices=None, multi_select=Fal
         what = "subset" if multi_select else "option"
         return f"{prefix}Pick the best {what} from {choices} using your own judgment and continue.]"
     return f"{prefix}Make the most reasonable assumption you can and continue.]"
+
+
+def _primary_fallback_disabled(cli) -> bool:
+    """Session policy wins over config, including managed overlays and cached chains."""
+    return bool(getattr(cli, "no_fallback", False)) or os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
 
 
 def _current_runtime(cli) -> dict:
@@ -370,7 +376,7 @@ class CLIAgentSetupMixin:
         from cli import _cprint, logger
         from hermes_cli.auth import AuthError, primary_failure_wording
         from hermes_cli.runtime_provider import resolve_runtime_provider
-        if not isinstance(primary_exc, AuthError):
+        if _primary_fallback_disabled(self) or not isinstance(primary_exc, AuthError):
             return None
         _fb_chain = self._fallback_model if isinstance(self._fallback_model, list) else []
         for _fb in _fb_chain:
@@ -686,7 +692,8 @@ class CLIAgentSetupMixin:
                 session_id=self.session_id, platform="cli", session_db=self._session_db,
                 clarify_callback=clarify_callback, connection_callback=connection_callback,
                 reasoning_callback=self._current_reasoning_callback(),
-                fallback_model=self._fallback_model, thinking_callback=self._on_thinking,
+                fallback_model=[] if _primary_fallback_disabled(self) else self._fallback_model,
+                thinking_callback=self._on_thinking,
                 checkpoints_enabled=self.checkpoints_enabled,
                 checkpoint_max_snapshots=self.checkpoint_max_snapshots,
                 checkpoint_max_total_size_mb=self.checkpoint_max_total_size_mb,

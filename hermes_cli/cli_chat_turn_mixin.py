@@ -20,7 +20,7 @@ from typing import Optional
 
 from agent.i18n import t
 
-from hermes_cli.cli_agent_setup_mixin import _retire_agent
+from hermes_cli.cli_agent_setup_mixin import _primary_fallback_disabled, _retire_agent
 
 
 class CLIChatTurnMixin:
@@ -36,6 +36,12 @@ class CLIChatTurnMixin:
         per-turn, fail-closed contract as the Desktop/TUI and messaging gateways: a torn config.yaml
         keeps the last known-good chain instead of reading as "chain removed"."""
         from cli import logger
+        if _primary_fallback_disabled(self):
+            self._fallback_model = []
+            agent._fallback_chain = []
+            agent._fallback_model = None
+            agent._fallback_index = 0
+            return
         try:
             from gateway.run import GatewayRunner
             from hermes_cli.config_effective import load_user_config_effective

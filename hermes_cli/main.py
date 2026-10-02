@@ -1832,6 +1832,9 @@ def cmd_chat(args):
     from hermes_cli.stream_json import stream_json_requested
     # Structured stdout is a non-interactive protocol: it overrides HERMES_TUI/display.interface too.
     use_tui = False if stream_json_requested(args) else _resolve_use_tui(args)
+    if use_tui and getattr(args, "no_fallback", False):
+        print("Error: --no-fallback requires --cli; TUI fallback policy is not supported by this flag.", file=sys.stderr)
+        sys.exit(2)
 
     _resolve_chat_session_args(args, use_tui)
 
@@ -1890,6 +1893,7 @@ def cmd_chat(args):
         "oneshot": bool(getattr(args, "oneshot_exit", False)),
         "run_budget": getattr(args, "run_budget", None),
         "output_format": getattr(args, "output_format", "text"),
+        "no_fallback": getattr(args, "no_fallback", False),
         "ignore_rules": getattr(args, "ignore_rules", False) or safe_mode,
         "ignore_user_config": getattr(args, "ignore_user_config", False) or safe_mode,
         "compact": getattr(args, "compact", False),
@@ -3158,6 +3162,9 @@ def _run_oneshot_from_args(args) -> None:
 
     Bypasses cli.py entirely; _run_and_exit_oneshot never returns.
     """
+    if getattr(args, "no_fallback", False):
+        print("Error: --no-fallback is not supported with -z; use hermes chat --cli --no-fallback -Q -q PROMPT.", file=sys.stderr)
+        sys.exit(2)
     _confirm_startup_expensive_model_override(args)
     # -z honors --resume/-c/--in exactly like chat (#105892): normalize BEFORE the
     # oneshot exit path takes over, else the flags parse fine but silently do nothing
