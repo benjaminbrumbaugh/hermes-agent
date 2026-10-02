@@ -1,3 +1,8 @@
 2026-10-02 15:09:10 PDT | O=15% | task=load-context | subtask=preflight | Focused session-brief tests passed on clean origin/main_plus_our_prs (23 tests).
 2026-10-02 15:09:10 PDT | O=20% | task=planning | subtask=initial-plan | Wrote Lane D plan with counter=0, proxy audit, boundaries, and evidence gates.
 2026-10-02 15:14:00 PDT | O=25% | task=planning | subtask=three-passes | Refined plan through counter 3; added current-control render, exact truth joins, tri-state acceptance, and lost-information audit.
+2026-10-02 15:18:00 PDT | O=45% | task=implement | subtask=tournament-core | Added evidence index, Swiss round-robin schedule, strict verdict parsing, Elo, OpenRouter/Codex adapters, and focused tests.
+2026-10-02 15:29:00 PDT | O=55% | task=evidence | subtask=current-renders | Generated current-pane controls at 280/320/400px in dark/light; all 486 captures succeeded.
+2026-10-02 15:30:00 PDT | O=60% | task=validation | subtask=smoke | Static smoke run passed evidence joins, scheduling, Elo, tri-state report path, and render coverage checks.
+2026-10-02 15:55:00 PDT | O=85% | task=evidence | subtask=full-tournament | Completed 1,260 primary comparisons and 90 Codex final-round checks with zero provider errors; result no_candidate_beats_current.
+2026-10-02 15:55:51 PDT | O=90% | task=review | subtask=human-spot-check | Inspected ten paired glance/full image receipts; recorded 10/10 machine-direction agreements and three verified losing-design findings.
