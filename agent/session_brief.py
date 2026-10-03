@@ -61,7 +61,7 @@ _SYSTEM_PROMPT = """You maintain a tiny running status brief for a user returnin
 
 - status: begin with exactly one state label: DONE:, WAITING ON YOU:, RUNNING:, ABANDONED:, or UNCLEAR:. Use one short present-tense sentence and name the next event or exact user action.
 - goal: the newest controlling request in plain user language, one sentence. Replace it after a material pivot.
-- completed: at most 4 concrete user-relevant outcomes, newest last. Merge duplicates and omit process chores.
+- completed: at most 4 concrete user-relevant outcomes, newest last. Merge duplicates and omit process chores. Carry an earlier outcome forward only when it remains true and relevant; do not invent a new outcome from the previous draft.
 - blockers: only exact actions, choices, confirmations, or approvals the user must provide. Empty array if none.
 - Never write generic telemetry such as "the latest assistant turn is done/unclear" or "no current user request is present". State the concrete work or result instead.
 
@@ -78,7 +78,7 @@ Evidence rules:
 - On every update, replace stale goals, status, outcomes, and blockers when the latest direct user turn materially pivots. Do not preserve a previous brief merely because it sounds plausible.
 - Never redefine the goal from a tool/system/scaffolding message or from an assistant's narrower subtask. Preserve every explicit deliverable in the latest direct user request (for example, locate + fix + link) until each is evidenced as delivered.
 - If the latest direct user request is newer than the latest assistant work, that work may be stale: do not call it DONE. Use RUNNING only for active work, WAITING ON YOU only for an explicit user ask, or ABANDONED when the request was left unaddressed.
-- `completed` is optional: return an empty list when an outcome is not explicit in the latest assistant turn or a directly preceding tool result. Never carry an item forward merely because it appeared in the previous brief. Do not turn plans, recommendations, pending work, or unverified claims into completed outcomes.
+- `completed` is optional: return an empty list when an outcome is not explicit in the latest assistant turn or a directly preceding tool result, unless it is the same outcome explicitly carried forward from the previous brief (ignoring capitalization and surrounding whitespace). Do not turn plans, recommendations, pending work, or unverified claims into completed outcomes.
 - Do not repeat exact IDs, URLs, commit hashes, counts, or test results unless the exact value appears in the latest assistant turn or recent tool results. If evidence is incomplete, omit the item.
 
 Do not invent facts or decisions. Runtime wrappers and assistant plans are not user requests. Keep every string under 140 characters; brevity is more important than completeness outside the four glance answers."""
@@ -276,16 +276,26 @@ def normalize_brief(parsed: Dict[str, Any], *, message_count: int) -> Dict[str, 
     }
 
 
-def _evidence_backed_completed(brief: Dict[str, Any], evidence: str) -> List[str]:
-    """Keep only compact outcomes with visible support in the current model evidence.
+def _evidence_backed_completed(
+    brief: Dict[str, Any], evidence: str, *, previous: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """Keep only compact outcomes with visible support in current evidence or an explicit prior carry-forward.
 
-    This is intentionally conservative. A paraphrase is useful only when several meaningful terms occur in
-    the current evidence; exact-looking identifiers and numeric claims must occur verbatim. Unsupported
-    completion claims are more harmful to a status instrument than an omitted low-signal outcome.
+    This is intentionally conservative. A new paraphrase is useful only when several meaningful terms occur
+    in the current evidence; exact-looking identifiers and numeric claims must occur verbatim. A prior item is
+    accepted only when the model explicitly returns the same earlier text, ignoring capitalization and
+    surrounding whitespace. Unsupported completion claims are more harmful to a status instrument than an
+    omitted low-signal outcome.
     """
     if not isinstance(brief.get("completed"), list):
         return []
     haystack = str(evidence or "").casefold()
+    prior_values = (previous or {}).get("completed", []) if isinstance(previous, dict) else []
+    prior_completed = {
+        str(item).strip().casefold()
+        for item in (prior_values if isinstance(prior_values, list) else [])
+        if isinstance(item, (str, int, float)) and str(item).strip()
+    }
     stopwords = {
         "a", "an", "and", "are", "as", "at", "by", "for", "from", "in", "is", "it", "of", "on",
         "the", "to", "was", "were", "with", "this", "that", "user", "latest", "current",
@@ -296,6 +306,9 @@ def _evidence_backed_completed(brief: Dict[str, Any], evidence: str) -> List[str
         if not item:
             continue
         lowered = item.casefold()
+        if lowered in prior_completed:
+            kept.append(item)
+            continue
         tokens = re.findall(r"[a-z0-9][a-z0-9._:/-]{2,}", lowered)
         meaningful = [token for token in tokens if token not in stopwords]
         exact_tokens = [token for token in meaningful if any(char.isdigit() for char in token) or "/" in token or ":" in token]
@@ -303,7 +316,7 @@ def _evidence_backed_completed(brief: Dict[str, Any], evidence: str) -> List[str
             continue
         hits = sum(token in haystack for token in meaningful)
         needed = min(2, len(meaningful))
-        if needed and hits < needed:
+        if not needed or hits < needed:
             continue
         kept.append(item)
     return kept[:4]
@@ -335,14 +348,14 @@ def generate_brief(
         logger.debug("Session brief reply was not a brief; keeping the previous one")
         return None
     brief = normalize_brief(parsed, message_count=message_count)
-    brief["completed"] = _evidence_backed_completed(brief, delta_text)
+    brief["completed"] = _evidence_backed_completed(brief, delta_text, previous=previous)
     return brief
 
 
 def update_session_brief(
     session_db: Any, session_id: str, delta_messages: List[Any], *, message_count: int,
     main_runtime: Optional[dict] = None, brief_callback: Optional[BriefCallback] = None,
-    failure_callback: Optional[FailureCallback] = None,
+    failure_callback: Optional[FailureCallback] = None, update_order: Optional[float] = None,
 ) -> None:
     """Thread body: read the previous brief, call the model, persist, notify. Never raises."""
     try:
@@ -354,6 +367,8 @@ def update_session_brief(
         )
         if brief is None:
             return
+        if update_order is not None:
+            brief["updated_at"] = update_order
         if not session_db.set_session_brief(session_id, brief):
             logger.debug("Session brief write matched no row for %s", session_id)
             return
@@ -407,12 +422,13 @@ def maybe_update_brief(agent: Any, messages: List[Any]) -> Optional[threading.Th
         k: getattr(agent, k, None)
         for k in ("model", "provider", "base_url", "api_key", "api_mode", "session_id")
     }
+    update_order = time.time()
     from agent.memory_provider import spawn_context_thread
     thread = spawn_context_thread(
         update_session_brief, name="session-brief",
         args=(session_db, session_id, [dict(m) if isinstance(m, dict) else m for m in delta]),
         kwargs=dict(
-            message_count=len(messages), main_runtime=main_runtime,
+            message_count=len(messages), main_runtime=main_runtime, update_order=update_order,
             brief_callback=getattr(agent, "_on_session_brief", None),
             failure_callback=getattr(agent, "_emit_auxiliary_failure", None),
         ),

@@ -43,5 +43,18 @@ def test_newer_brief_on_the_tip_shadows_the_root(db):
     assert db.get_session_brief("root")["goal"] == "old"
 
 
+def test_refresh_order_accepts_compaction_and_rejects_stale_write(db):
+    db.create_session("s", "tui")
+    newer = _brief("new", 4)
+    assert db.set_session_brief("s", newer)
+    compacted = _brief("compacted", 2)
+    compacted["updated_at"] = 2.0
+    assert db.set_session_brief("s", compacted)
+    stale = _brief("old", 4)
+    stale["updated_at"] = 1.5
+    assert db.set_session_brief("s", stale) is False
+    assert db.get_session_brief("s")["goal"] == "compacted"
+
+
 def test_set_brief_on_missing_row_reports_false(db):
     assert db.set_session_brief("ghost", _brief("x", 1)) is False

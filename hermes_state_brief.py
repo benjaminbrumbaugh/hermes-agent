@@ -49,12 +49,41 @@ class SessionBriefMixin:
     """Persist and resolve the per-lineage session brief."""
 
     def set_session_brief(self, session_id: str, brief: Dict[str, Any]) -> bool:
-        """Store *brief* on ``session_id``'s row. Returns False when no row matched."""
+        """Store *brief* if its refresh order is not older than the row's current brief.
+
+        Post-turn auxiliary updates run independently, so a slower earlier turn must not overwrite a newer
+        brief. Returns False when no row matched or when the write lost that ordering race.
+        """
         if not session_id or not isinstance(brief, dict):
             return False
         payload = json.dumps(brief, ensure_ascii=False)
 
+        def _ordering_key(value: Any) -> tuple[float, int]:
+            if not isinstance(value, dict):
+                return (0.0, 0)
+            try:
+                updated_at = float(value.get("updated_at") or 0.0)
+            except (TypeError, ValueError, OverflowError):
+                updated_at = 0.0
+            if not math.isfinite(updated_at):
+                updated_at = 0.0
+            try:
+                message_count = max(0, int(value.get("message_count") or 0))
+            except (TypeError, ValueError, OverflowError):
+                message_count = 0
+            return (updated_at, message_count)
+
         def _do(conn):
+            row = conn.execute("SELECT brief_json FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if row is None:
+                return 0
+            if row[0]:
+                try:
+                    current = json.loads(row[0])
+                except (TypeError, ValueError):
+                    current = None
+                if _ordering_key(current) > _ordering_key(brief):
+                    return 0
             return conn.execute(
                 "UPDATE sessions SET brief_json = ? WHERE id = ?", (payload, session_id),
             ).rowcount

@@ -21,3 +21,12 @@
 2026-10-02 18:05:00 PT | O=80% | task=self-review | subtask=focused-tests | scripts/run_tests.sh ran 12 eval tests; all passed, plus py_compile/ruff/node syntax checks
 2026-10-02 18:12:00 PT | O=90% | task=self-review | subtask=artifact-audit | Verified manifest/truth/image key agreement and file:// deck provenance; no user glance result claimed
 2026-10-02 18:18:00 PT | O=100% | task=submit | subtask=refinery-handoff | Pushed and verified polecat/ha-0ba; assigned bead to Hermes-Agent/gastown.refinery
+2026-10-02 17:35:00 PT | O=10% | task=F0 | subtask=F0.1 | claimed bead and initialized review branch
+2026-10-02 17:35:00 PT | O=15% | task=F0 | subtask=F0.2 | wrote three-pass lane F execution plan
+2026-10-02 17:48:00 PT | O=30% | task=F1 | subtask=F1.1 | completed parallel Claude/Codex round-one review
+2026-10-02 17:49:00 PT | O=35% | task=F1 | subtask=F1.2 | verified two findings and rejected unconfirmed compression concern
+2026-10-02 18:12:00 PT | O=70% | task=F2 | subtask=F2.1 | fixed evidence filtering and backend refresh ordering
+2026-10-02 18:19:00 PT | O=80% | task=F2 | subtask=F2.2 | fixed desktop lineage freshness and added regression coverage
+2026-10-02 18:24:00 PT | O=90% | task=F3 | subtask=F3.1 | completed final Claude/Codex no-ship-blocker review
+2026-10-02 18:26:00 PT | O=95% | task=F3 | subtask=F3.2 | backend, desktop, lint, format, and diff checks passed
+2026-10-02 18:27:00 PT | O=100% | task=F4 | subtask=F4.1 | archived confirmation record and prepared refinery handoff

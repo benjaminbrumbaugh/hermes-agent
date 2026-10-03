@@ -36,7 +36,7 @@ const isBrief = (value: unknown): value is SessionBrief => {
   )
 }
 
-/** Newest wins: an out-of-order event for an older `updated_at` is dropped. */
+/** Newest wins: refresh order is primary; message position breaks timestamp ties. */
 export function applySessionBrief(storedSessionId: string, brief: unknown): void {
   const id = storedSessionId.trim()
 
@@ -46,9 +46,30 @@ export function applySessionBrief(storedSessionId: string, brief: unknown): void
 
   const current = $briefsBySession.get()
   const aliases = lineageAliases(id, $sessions.get())
-  const existing = aliases.map(alias => current[alias]).find(Boolean)
 
-  if (existing && existing.updated_at > brief.updated_at) {
+  const existing = aliases.reduce<SessionBrief | undefined>((newest, alias) => {
+    const candidate = current[alias]
+
+    if (!candidate) {
+      return newest
+    }
+
+    if (
+      !newest ||
+      candidate.updated_at > newest.updated_at ||
+      (candidate.updated_at === newest.updated_at && candidate.message_count > newest.message_count)
+    ) {
+      return candidate
+    }
+
+    return newest
+  }, undefined)
+
+  if (
+    existing &&
+    (existing.updated_at > brief.updated_at ||
+      (existing.updated_at === brief.updated_at && existing.message_count > brief.message_count))
+  ) {
     return
   }
 

@@ -88,6 +88,15 @@ def test_completed_items_require_current_evidence():
     brief = {"completed": ["Ran the focused tests", "Committed 44a9689"]}
     evidence = "The focused tests passed. No commit was made."
     assert session_brief._evidence_backed_completed(brief, evidence) == ["Ran the focused tests"]
+    assert session_brief._evidence_backed_completed({"completed": ["OK"]}, "No matching outcome here.") == []
+
+
+def test_completed_items_preserve_an_explicitly_carried_prior_outcome():
+    brief = {"completed": ["Ran the focused tests"]}
+    previous = {"completed": ["Ran the focused tests"]}
+    assert session_brief._evidence_backed_completed(brief, "A later turn changed the status.", previous=previous) == [
+        "Ran the focused tests"
+    ]
 
 
 def test_model_evidence_excludes_runtime_user_scaffolding():

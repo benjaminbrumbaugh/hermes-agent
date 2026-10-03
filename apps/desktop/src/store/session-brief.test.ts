@@ -29,10 +29,20 @@ describe('session brief store', () => {
     expect($briefsBySession.get().tip?.goal).toBe('g')
   })
 
-  it('drops an out-of-order older brief', () => {
-    applySessionBrief('s', brief('new', 20))
-    applySessionBrief('s', brief('old', 10))
+  it('drops an older message position when refresh timestamps tie', () => {
+    applySessionBrief('s', { ...brief('new', 10), message_count: 4 })
+    applySessionBrief('s', { ...brief('old', 10), message_count: 2 })
     expect($briefsBySession.get().s?.goal).toBe('new')
+  })
+
+  it('compares against cached lineage aliases when a new tip appears', () => {
+    $sessions.set([{ _lineage_root_id: 'root', id: 'old-tip' }] as never)
+    applySessionBrief('old-tip', brief('new', 10))
+
+    $sessions.set([{ _lineage_root_id: 'root', id: 'new-tip' }] as never)
+    applySessionBrief('new-tip', brief('old', 9))
+
+    expect($briefsBySession.get().root?.goal).toBe('new')
   })
 
   it('ignores payloads that are not briefs', () => {

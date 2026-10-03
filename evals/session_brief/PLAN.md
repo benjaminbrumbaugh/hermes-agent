@@ -97,4 +97,29 @@ corpus/` path passed explicitly). Nothing in the program touches `~/.hermes` sta
 
 ## Adversarial review record
 
-_(empty — rounds append here)_
+### Lane F — 2026-10-03 — target `59e03c46dd`
+
+Model families: Claude/Opus and Codex/gpt-5.6-terra. Raw receipts and local
+verification are archived under `reviews/2026-10-03-lane-f/`.
+
+- Round 1 found and locally reproduced two blockers: later deltas discarded
+  explicitly carried completed outcomes, and independent auxiliary refreshes
+  could overwrite a newer result. v1 `decisions` projection, prompt-cache
+  isolation, and the compression-slice concern were rejected or unconfirmed.
+- Round 2 fact-checked the first fixes. It found that message-count-only
+  ordering fails when compaction lowers the count, that zero-token new items
+  could pass the evidence filter, and that the first desktop alias ordering
+  approach was insufficient. The fixes now capture refresh order before the
+  worker starts, compare `(updated_at, message_count)` atomically, reject
+  zero-token new outcomes, and compare all cached lineage aliases. The
+  case/whitespace-insensitive carry-forward rule is intentional and documented.
+- Round 3 was ship-blocker-only. Both model families returned
+  **NO SHIP-BLOCKERS** after the final alias regression test was added.
+
+Confirmation gate: **CONFIRMED-WITH-NITS**. The adversarial review is
+confirmed by two independent model families and passing affected checks. The
+remaining nits are evidence-layer limits, not review blockers: Lane E's
+existing full report still records `ships=false`, and the dedicated human
+glance/non-English visual gates were not rerun for the changed prompt. This
+review therefore does not promote the product ship decision or substitute for
+Lane G/H.
