@@ -38,3 +38,7 @@
 2026-10-02 18:29:28 PDT | O=100% | task=self-review | subtask=affected-tests | scripts/run_tests.sh passed 31 session-brief tests across 3 files
 2026-10-02 18:31:24 PDT | O=100% | task=self-review | subtask=desktop-checks | tsc, ESLint, and session-brief Vitest passed after locked workspace install
 2026-10-02 18:31:34 PDT | O=100% | task=self-review | subtask=static-checks | py_compile and Ruff passed for changed Python files
+2026-10-02 18:38:20 PT | O=100% | task=recovery | subtask=workspace-setup | Restored polecat/ha-fsd and rebased cleanly onto origin/main_plus_our_prs
+2026-10-02 18:38:30 PT | O=100% | task=self-review | subtask=affected-tests | scripts/run_tests.sh passed 31 session-brief tests after recovery
+2026-10-02 18:38:40 PT | O=100% | task=self-review | subtask=desktop-checks | Installed locked npm workspace deps; tsc, ESLint, and Vitest passed
+2026-10-02 18:38:50 PT | O=100% | task=self-review | subtask=static-checks | py_compile, Ruff, git diff --check, and clean-tree checks passed
