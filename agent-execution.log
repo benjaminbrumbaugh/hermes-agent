@@ -30,3 +30,8 @@
 2026-10-02 18:24:00 PT | O=90% | task=F3 | subtask=F3.1 | completed final Claude/Codex no-ship-blocker review
 2026-10-02 18:26:00 PT | O=95% | task=F3 | subtask=F3.2 | backend, desktop, lint, format, and diff checks passed
 2026-10-02 18:27:00 PT | O=100% | task=F4 | subtask=F4.1 | archived confirmation record and prepared refinery handoff
+2026-10-02 18:22:10 PDT | O=100% | task=recovery | subtask=rebase-conflict | Rebased polecat/ha-fsd onto current main_plus_our_prs; preserved both lane logs
+2026-10-02 18:22:39 PT | O=100% | task=self-review | subtask=backend-tests | scripts/run_tests.sh passed 24 session-brief backend tests after rebase
+2026-10-02 18:23:44 PT | O=100% | task=self-review | subtask=desktop-checks | tsc, eslint, and session-brief vitest passed after installing locked deps
+2026-10-02 18:23:55 PT | O=100% | task=self-review | subtask=contract-test | scripts/run_tests.sh passed 7 session-brief eval contract tests
+2026-10-02 18:24:05 PT | O=100% | task=self-review | subtask=static-checks | Ruff and py_compile passed for changed Python files
