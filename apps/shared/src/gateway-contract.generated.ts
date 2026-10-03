@@ -3192,14 +3192,13 @@ export interface SessionBriefParams {
 export interface SessionBriefResult {
   brief?: SessionBrief | null
 }
-/** ``agent.session_brief.normalize_brief``: the persisted, human-facing running summary. */
+/** ``agent.session_brief.normalize_brief``: the persisted, human-facing running status brief. */
 export interface SessionBrief {
   version: number
   goal: string
   status: string
   completed: string[]
   blockers: string[]
-  decisions: string[]
   updated_at: number
   message_count: number
 }

@@ -5220,11 +5220,10 @@ export const frOverrides = {
     brief: {
       aria: 'Résumé de session',
       goal: 'Objectif',
-      status: 'Où en est-on',
+      status: 'Statut',
       tasks: 'Tâches',
       completed: 'Fait jusqu’ici',
       blockers: 'Besoin de vous',
-      decisions: 'Décisions',
       updated: when => `Mis à jour ${when}`,
       emptyTitle: 'Pas encore de résumé',
       emptyBody: 'Un résumé continu de cette conversation apparaît ici après la première réponse.'

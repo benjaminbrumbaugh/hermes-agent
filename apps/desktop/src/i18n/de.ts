@@ -5206,11 +5206,10 @@ export const deOverrides = {
     brief: {
       aria: 'Sitzungs-Kurzfassung',
       goal: 'Ziel',
-      status: 'Aktueller Stand',
+      status: 'Status',
       tasks: 'Aufgaben',
       completed: 'Bisher erledigt',
       blockers: 'Braucht dich',
-      decisions: 'Entscheidungen',
       updated: when => `Aktualisiert ${when}`,
       emptyTitle: 'Noch keine Kurzfassung',
       emptyBody: 'Eine laufende Zusammenfassung dieser Unterhaltung erscheint hier nach der ersten Antwort.'

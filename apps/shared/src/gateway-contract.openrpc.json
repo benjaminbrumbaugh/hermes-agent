@@ -28960,7 +28960,7 @@
       },
       "SessionBrief": {
         "additionalProperties": false,
-        "description": "``agent.session_brief.normalize_brief``: the persisted, human-facing running summary.",
+        "description": "``agent.session_brief.normalize_brief``: the persisted, human-facing running status brief.",
         "properties": {
           "version": {
             "title": "Version",
@@ -28988,13 +28988,6 @@
             "title": "Blockers",
             "type": "array"
           },
-          "decisions": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Decisions",
-            "type": "array"
-          },
           "updated_at": {
             "title": "Updated At",
             "type": "number"
@@ -29010,7 +29003,6 @@
           "status",
           "completed",
           "blockers",
-          "decisions",
           "updated_at",
           "message_count"
         ],

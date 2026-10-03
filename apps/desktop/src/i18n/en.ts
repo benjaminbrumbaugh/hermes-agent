@@ -4819,11 +4819,10 @@ export const en: Translations = {
     brief: {
       aria: 'Session brief',
       goal: 'Goal',
-      status: 'Where things stand',
+      status: 'Status',
       tasks: 'Tasks',
       completed: 'Done so far',
       blockers: 'Needs you',
-      decisions: 'Decisions',
       updated: when => `Updated ${when}`,
       emptyTitle: 'No brief yet',
       emptyBody: 'A running summary of this conversation appears here after the first reply.'

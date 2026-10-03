@@ -4073,7 +4073,6 @@ export interface Translations {
       tasks: string
       completed: string
       blockers: string
-      decisions: string
       updated: (when: string) => string
       emptyTitle: string
       emptyBody: string

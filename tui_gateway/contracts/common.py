@@ -17,14 +17,13 @@ class OpenModel(Result):
 
 
 class SessionBrief(Result):
-    """``agent.session_brief.normalize_brief``: the persisted, human-facing running summary."""
+    """``agent.session_brief.normalize_brief``: the persisted, human-facing running status brief."""
 
     version: int
     goal: str
     status: str
     completed: list[str]
     blockers: list[str]
-    decisions: list[str]
     updated_at: float
     message_count: int
 

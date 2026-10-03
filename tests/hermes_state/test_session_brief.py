@@ -30,6 +30,7 @@ def test_brief_written_before_compression_is_readable_from_the_child(db):
     assert db.set_session_brief("root", _brief("ship it", 2))
     _compress(db, "root", "tip")
     assert db.get_session_brief("tip")["goal"] == "ship it"
+    assert "decisions" not in db.get_session_brief("tip")
 
 
 def test_newer_brief_on_the_tip_shadows_the_root(db):

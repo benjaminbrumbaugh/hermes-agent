@@ -53,7 +53,11 @@ OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 GRADER_MAX_TOKENS = 1800
 _print_lock = threading.Lock()
 
+# Keep the historical decisions projection for archived Lane B variants and scorecards, even though the
+# production baseline no longer emits it. This lets old comparison artifacts remain loadable while the
+# baseline/evaluator follows the current four-field wire contract.
 _CANONICAL_FIELDS = ("goal", "status", "completed", "blockers", "decisions")
+_LEGACY_DECISIONS = {"type": "array", "items": {"type": "string"}}
 
 
 @dataclass(frozen=True)
@@ -171,7 +175,7 @@ def _load_schema_sidecar(name: str) -> tuple[Dict[str, Any], Dict[str, Any], Dic
         or schema.get("additionalProperties") is not False
     ):
         raise SystemExit(f"schema sidecar {path} must be a strict object schema")
-    base_properties = sb._BRIEF_SCHEMA["properties"]
+    base_properties = {**sb._BRIEF_SCHEMA["properties"], "decisions": _LEGACY_DECISIONS}
     shared = set(properties) & set(base_properties)
     changed = sorted(key for key in shared if properties[key] != base_properties[key])
     if changed:
@@ -239,7 +243,7 @@ def _descriptor_fingerprint(specs: Iterable[VariantSpec]) -> str:
 
 def _generate_one(previous: Optional[Dict[str, Any]], delta: List[Dict[str, Any]], *, spec: VariantSpec,
                   model: str, message_count: int) -> Optional[Dict[str, Any]]:
-    delta_text = sb._render_turn_delta(delta)
+    delta_text = sb._render_brief_input(delta)
     if not delta_text.strip():
         return None
     messages = sb._build_messages(previous, delta_text)
@@ -249,6 +253,7 @@ def _generate_one(previous: Optional[Dict[str, Any]], delta: List[Dict[str, Any]
     if parsed is None:
         return {"_error": "unparseable", "_raw": reply["content"][:500], "_usage": reply["usage"]}
     brief = spec.normalize(parsed, message_count=message_count)
+    brief["completed"] = sb._evidence_backed_completed(brief, delta_text)
     brief["_usage"] = reply["usage"]
     brief["_latency_s"] = reply["latency_s"]
     return brief
@@ -330,7 +335,13 @@ def grade_snapshot(fixture: Dict[str, Any], record: Dict[str, Any], snap: Dict[s
     transcript = sb._render_turn_delta(fixture["messages"][: snap["message_count"]])
     if len(transcript) > transcript_chars:
         transcript = transcript[: transcript_chars // 2] + "\n\n[... middle elided for length ...]\n\n" + transcript[-transcript_chars // 2:]
-    shown = {k: brief[k] for k in ("goal", "status", "completed", "blockers", "decisions")}
+    # Mirror BriefPane's real hierarchy and conditional sections. Showing empty arrays or the retired
+    # decisions field to the grader would create density failures that the user never sees.
+    shown = {"status": brief.get("status", ""), "goal": brief.get("goal", "")}
+    if brief.get("blockers"):
+        shown["blockers"] = brief["blockers"]
+    if brief.get("completed"):
+        shown["completed"] = brief["completed"]
     user = f"TRANSCRIPT:\n{transcript}\n\nBRIEF (as the sidebar would show it, sections in this order):\n{json.dumps(shown, ensure_ascii=False, indent=1)}"
     reply = chat([{"role": "system", "content": _grader_prompt(rubric)}, {"role": "user", "content": user}],
                  model=model, max_tokens=GRADER_MAX_TOKENS, response_format={"type": "json_object"})

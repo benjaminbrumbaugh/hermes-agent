@@ -68,6 +68,40 @@ def test_non_brief_reply_is_rejected():
     assert session_brief._parse_brief('{"title": "x"}') is None
 
 
+def test_normalize_brief_migrates_v1_rows_to_the_compact_v2_shape():
+    brief = session_brief.normalize_brief({
+        "version": 1,
+        "goal": "g" * 200,
+        "status": "s" * 200,
+        "completed": ["one", "two", "three", "four", "process chore"],
+        "blockers": ["needs key"],
+        "decisions": ["legacy decision"],
+    }, message_count=7)
+    assert brief["version"] == 2
+    assert len(brief["goal"]) == 140
+    assert len(brief["status"]) == 140
+    assert len(brief["completed"]) == 4
+    assert "decisions" not in brief
+
+
+def test_completed_items_require_current_evidence():
+    brief = {"completed": ["Ran the focused tests", "Committed 44a9689"]}
+    evidence = "The focused tests passed. No commit was made."
+    assert session_brief._evidence_backed_completed(brief, evidence) == ["Ran the focused tests"]
+
+
+def test_model_evidence_excludes_runtime_user_scaffolding():
+    evidence = session_brief._render_brief_input([
+        {"role": "user", "content": "Find, fix, and link the dashboard."},
+        {"role": "assistant", "content": "I am inspecting it."},
+        {"role": "user", "content": "[ASYNC DELEGATION BATCH COMPLETE] stale subtask"},
+        {"role": "assistant", "content": "The requested link is not ready."},
+    ])
+    assert "Find, fix, and link the dashboard." in evidence
+    assert "stale subtask" not in evidence
+    assert "The requested link is not ready." in evidence
+
+
 def test_update_persists_and_notifies(monkeypatch):
     reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(
         {"goal": "g", "status": "s", "completed": [], "blockers": ["needs key"], "decisions": []})))])

@@ -6,7 +6,6 @@ import { $briefsBySession, applySessionBrief, clearAllSessionBriefs } from './se
 const brief = (goal: string, updatedAt: number) => ({
   blockers: [],
   completed: [],
-  decisions: [],
   goal,
   message_count: 2,
   status: 's',
@@ -39,6 +38,12 @@ describe('session brief store', () => {
   it('ignores payloads that are not briefs', () => {
     applySessionBrief('s', { goal: 1 })
     applySessionBrief('', brief('g', 1))
+    expect($briefsBySession.get()).toEqual({})
+  })
+
+  it('rejects payloads missing a current contract field', () => {
+    const { status: _status, ...missingStatus } = brief('g', 1)
+    applySessionBrief('s', missingStatus)
     expect($briefsBySession.get()).toEqual({})
   })
 })

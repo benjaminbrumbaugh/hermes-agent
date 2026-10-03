@@ -5197,11 +5197,10 @@ export const esOverrides = {
     brief: {
       aria: 'Resumen de sesión',
       goal: 'Objetivo',
-      status: 'Estado actual',
+      status: 'Estado',
       tasks: 'Tareas',
       completed: 'Hecho hasta ahora',
       blockers: 'Te necesita',
-      decisions: 'Decisiones',
       updated: when => `Actualizado ${when}`,
       emptyTitle: 'Aún no hay resumen',
       emptyBody: 'Un resumen continuo de esta conversación aparece aquí tras la primera respuesta.'
