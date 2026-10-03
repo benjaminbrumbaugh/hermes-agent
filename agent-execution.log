@@ -13,3 +13,10 @@
 2026-10-02 17:18:00 PT | O=65% | task=validation | subtask=focused-checks | 33 backend/contract/eval tests and desktop tsc/eslint/vitest passed
 2026-10-02 17:18:00 PT | O=70% | task=evidence | subtask=integrated-renders | Rendered and inspected all 20 Lane D design fixtures at 320px dark mode
 2026-10-02 17:35:00 PT | O=85% | task=evidence | subtask=full-eval | Final 263-snapshot run passed generation, glance, bucket, and verbosity gates; critical oracle gate remains false
+2026-10-02 17:35:00 PT | O=15% | task=setup | subtask=workspace-setup | Created bead worktree and polecat/ha-0ba from origin/main_plus_our_prs
+2026-10-02 17:36:00 PT | O=20% | task=planning | subtask=plan-refinement | Completed three planning passes and proxy audits; counter=3
+2026-10-02 17:37:00 PT | O=25% | task=preflight | subtask=base-check | No rig setup/typecheck/lint/test commands configured; base branch clean
+2026-10-02 17:50:00 PT | O=55% | task=implement | subtask=deck-and-scorer | Added static deck builder, inline two-second UI, and truth-aware scorer
+2026-10-02 17:58:00 PT | O=70% | task=verification | subtask=real-deck-and-synthetic-score | Built 10 real render deck (3/3/3/1 states); synthetic receipt scored 30/30
+2026-10-02 18:05:00 PT | O=80% | task=self-review | subtask=focused-tests | scripts/run_tests.sh ran 12 eval tests; all passed, plus py_compile/ruff/node syntax checks
+2026-10-02 18:12:00 PT | O=90% | task=self-review | subtask=artifact-audit | Verified manifest/truth/image key agreement and file:// deck provenance; no user glance result claimed

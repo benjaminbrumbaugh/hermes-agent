@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hermes session brief glance test</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.45 system-ui, -apple-system, sans-serif; }
+    body { margin: 0; min-height: 100vh; background: #111827; color: #f9fafb; }
+    main { width: min(720px, 100% - 32px); margin: 0 auto; padding: 32px 0 48px; }
+    h1, h2 { line-height: 1.15; }
+    h1 { font-size: 1.7rem; }
+    .card { background: #1f2937; border: 1px solid #374151; border-radius: 12px; padding: 24px; }
+    .muted { color: #cbd5e1; }
+    button { border: 0; border-radius: 8px; padding: 11px 16px; font: inherit; font-weight: 700; cursor: pointer; background: #60a5fa; color: #0f172a; }
+    button.secondary { background: #374151; color: #f9fafb; }
+    button:disabled { cursor: wait; opacity: .6; }
+    .hidden { display: none !important; }
+    .progress { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 16px; color: #cbd5e1; }
+    .stage { min-height: 360px; display: grid; place-items: center; background: #030712; border-radius: 8px; overflow: hidden; }
+    .stage img { display: block; max-width: 100%; max-height: 560px; object-fit: contain; }
+    .timer { text-align: center; color: #cbd5e1; margin: 12px 0 0; }
+    fieldset { border: 0; padding: 0; margin: 0 0 22px; }
+    legend { font-size: 1.1rem; font-weight: 700; margin-bottom: 10px; }
+    label { display: block; margin: 8px 0; }
+    input[type="radio"] { margin-right: 8px; }
+    input[type="text"], select { box-sizing: border-box; width: 100%; border: 1px solid #64748b; border-radius: 7px; padding: 10px; font: inherit; background: #0f172a; color: #f9fafb; }
+    .hint { color: #cbd5e1; font-size: .92rem; margin: 4px 0 10px; }
+    .error { color: #fca5a5; min-height: 1.5em; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #030712; padding: 16px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <main>
+    <section id="intro" class="card">
+      <h1>Session brief glance test</h1>
+      <p>This test measures what is visible from the real sidebar pane after a two-second glance.</p>
+      <p class="muted">You will see ten panes in random order. After each pane, record the state, the action waiting on you (leave blank when none), what the work is about, and your confidence.</p>
+      <button id="start">Start test</button>
+    </section>
+
+    <section id="exposure" class="hidden">
+      <div class="progress"><span id="exposure-progress"></span><span>Look only</span></div>
+      <div class="stage"><img id="brief-image" alt="Integrated session brief pane"></div>
+      <p id="timer" class="timer">Loading pane…</p>
+    </section>
+
+    <section id="questions" class="card hidden">
+      <div class="progress"><span id="question-progress"></span><span>Answer from memory</span></div>
+      <form id="answer-form">
+        <fieldset>
+          <legend>What state was the work in?</legend>
+          <label><input type="radio" name="state" value="done" required>Done</label>
+          <label><input type="radio" name="state" value="waiting_on_user">Waiting on me</label>
+          <label><input type="radio" name="state" value="running">Running</label>
+          <label><input type="radio" name="state" value="abandoned">Abandoned</label>
+        </fieldset>
+        <fieldset>
+          <legend>What exactly was waiting on you?</legend>
+          <p class="hint">Leave blank if the pane did not show a blocker.</p>
+          <input id="waiting-on" name="waiting_on" type="text" autocomplete="off">
+        </fieldset>
+        <fieldset>
+          <legend>What was the work about?</legend>
+          <input id="topic" name="topic" type="text" autocomplete="off" required>
+        </fieldset>
+        <fieldset>
+          <legend>How confident are you?</legend>
+          <select id="confidence" name="confidence" required>
+            <option value="" selected disabled>Select confidence</option>
+            <option value="1">1 — guessing</option>
+            <option value="2">2</option>
+            <option value="3">3 — somewhat sure</option>
+            <option value="4">4</option>
+            <option value="5">5 — certain</option>
+          </select>
+        </fieldset>
+        <p id="form-error" class="error" role="alert"></p>
+        <button type="submit">Next</button>
+      </form>
+    </section>
+
+    <section id="complete" class="card hidden">
+      <h2>Test complete</h2>
+      <p>Download the JSON receipt and run the scorer supplied with this deck.</p>
+      <button id="download">Download glance-test.json</button>
+      <pre id="receipt-preview"></pre>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+    const FIXTURES = __GLANCE_FIXTURES_JSON__;
+    const EXPOSURE_MS = 2000;
+    const DECK_ID = "session-brief-glance-v1";
+    const $ = id => document.getElementById(id);
+    const intro = $("intro");
+    const exposure = $("exposure");
+    const questions = $("questions");
+    const complete = $("complete");
+    const image = $("brief-image");
+    const timer = $("timer");
+    const form = $("answer-form");
+    let order = [];
+    let position = 0;
+    let exposureStarted;
+    let exposureEnded;
+    let exposureTimerStarted = false;
+    let answers = [];
+    let receipt;
+
+    function shuffled(items) {
+      const copy = items.slice();
+      for (let i = copy.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copy[i], copy[j]] = [copy[j], copy[i]];
+      }
+      return copy;
+    }
+
+    function show(node) { node.classList.remove("hidden"); }
+    function hide(node) { node.classList.add("hidden"); }
+
+    function startExposure() {
+      if (exposureTimerStarted) return;
+      exposureTimerStarted = true;
+      exposureStarted = new Date();
+      timer.textContent = "Keep looking…";
+      window.setTimeout(() => {
+        exposureEnded = new Date();
+        timer.textContent = "Now answer from memory.";
+        hide(exposure);
+        show(questions);
+        $("question-progress").textContent = `Question ${position + 1} of ${order.length}`;
+        form.reset();
+        $("form-error").textContent = "";
+        const first = form.querySelector("input[name=state]");
+        if (first) first.focus();
+      }, EXPOSURE_MS);
+    }
+
+    function beginRound() {
+      const fixture = order[position];
+      exposureTimerStarted = false;
+      $("exposure-progress").textContent = `Pane ${position + 1} of ${order.length}`;
+      image.alt = `Integrated session brief pane ${position + 1} of ${order.length}`;
+      image.onload = startExposure;
+      image.onerror = () => {
+        timer.textContent = "Could not load this pane. Check the deck's images directory and reload.";
+      };
+      image.src = fixture.image;
+      if (image.complete && image.naturalWidth > 0) startExposure();
+    }
+
+    function answerForCurrentRound() {
+      const fixture = order[position];
+      const state = form.querySelector("input[name=state]:checked");
+      const waitingOn = $("waiting-on").value.trim();
+      const topic = $("topic").value.trim();
+      const confidence = Number($("confidence").value);
+      if (!state || !topic || !Number.isInteger(confidence) || confidence < 1 || confidence > 5) {
+        $("form-error").textContent = "Choose a state, describe the topic, and select confidence.";
+        return null;
+      }
+      if (state.value === "waiting_on_user" && !waitingOn) {
+        $("form-error").textContent = "For WAITING, name the exact action needed from you.";
+        return null;
+      }
+      return {
+        key: fixture.key,
+        fixture_id: fixture.fixture_id,
+        message_count: fixture.message_count,
+        state: state.value,
+        waiting_on: waitingOn,
+        topic,
+        confidence,
+        exposure_started_at: exposureStarted.toISOString(),
+        exposure_ended_at: exposureEnded.toISOString(),
+        exposure_ms: exposureEnded.getTime() - exposureStarted.getTime()
+      };
+    }
+
+    function makeReceipt() {
+      receipt = {
+        schema_version: 1,
+        deck_id: DECK_ID,
+        variant: "baseline",
+        started_at: answers[0]?.exposure_started_at || new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        order: order.map(fixture => fixture.key),
+        answers
+      };
+      $("receipt-preview").textContent = JSON.stringify(receipt, null, 2);
+    }
+
+    function downloadReceipt() {
+      const blob = new Blob([JSON.stringify(receipt, null, 2) + "\n"], {type: "application/json"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "glance-test.json";
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    $("start").addEventListener("click", () => {
+      order = shuffled(FIXTURES);
+      position = 0;
+      answers = [];
+      hide(intro);
+      show(exposure);
+      beginRound();
+    });
+
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const answer = answerForCurrentRound();
+      if (!answer) return;
+      answers.push(answer);
+      position += 1;
+      hide(questions);
+      if (position < order.length) {
+        show(exposure);
+        beginRound();
+      } else {
+        makeReceipt();
+        show(complete);
+      }
+    });
+
+    $("download").addEventListener("click", downloadReceipt);
+  </script>
+</body>
+</html>
