@@ -20,3 +20,4 @@
 2026-10-02 17:58:00 PT | O=70% | task=verification | subtask=real-deck-and-synthetic-score | Built 10 real render deck (3/3/3/1 states); synthetic receipt scored 30/30
 2026-10-02 18:05:00 PT | O=80% | task=self-review | subtask=focused-tests | scripts/run_tests.sh ran 12 eval tests; all passed, plus py_compile/ruff/node syntax checks
 2026-10-02 18:12:00 PT | O=90% | task=self-review | subtask=artifact-audit | Verified manifest/truth/image key agreement and file:// deck provenance; no user glance result claimed
+2026-10-02 18:18:00 PT | O=100% | task=submit | subtask=refinery-handoff | Pushed and verified polecat/ha-0ba; assigned bead to Hermes-Agent/gastown.refinery
