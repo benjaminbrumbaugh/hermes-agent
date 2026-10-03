@@ -35,3 +35,6 @@
 2026-10-02 18:23:44 PT | O=100% | task=self-review | subtask=desktop-checks | tsc, eslint, and session-brief vitest passed after installing locked deps
 2026-10-02 18:23:55 PT | O=100% | task=self-review | subtask=contract-test | scripts/run_tests.sh passed 7 session-brief eval contract tests
 2026-10-02 18:24:05 PT | O=100% | task=self-review | subtask=static-checks | Ruff and py_compile passed for changed Python files
+2026-10-02 18:29:28 PDT | O=100% | task=self-review | subtask=affected-tests | scripts/run_tests.sh passed 31 session-brief tests across 3 files
+2026-10-02 18:31:24 PDT | O=100% | task=self-review | subtask=desktop-checks | tsc, ESLint, and session-brief Vitest passed after locked workspace install
+2026-10-02 18:31:34 PDT | O=100% | task=self-review | subtask=static-checks | py_compile and Ruff passed for changed Python files
