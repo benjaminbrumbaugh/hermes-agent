@@ -220,6 +220,33 @@ class TestGetServicePidsScoping:
         self._wire(monkeypatch)
         assert gw._get_service_pids() == {100}
 
+    def test_launchd_wrapper_owns_its_gateway_child_everywhere(self, monkeypatch, capsys):
+        """A JXA service wrapper must not make its Python gateway child look manual."""
+        from types import SimpleNamespace
+
+        from hermes_cli.update_cmd_stale_survivors import signal_stale_fleet_survivors
+        from hermes_cli.update_inventory import _detect_supervisor_for_pid
+        import hermes_cli.update_cmd_fleet as fleet
+
+        wrapper_pid, gateway_pid, manual_pid = 100, 101, 200
+        parents = {gateway_pid: wrapper_pid}
+        monkeypatch.setattr(gw, "_get_service_pids", lambda all_profiles=False: {wrapper_pid})
+        monkeypatch.setattr(gw, "_get_parent_pid", lambda pid: parents.get(pid))
+        monkeypatch.setattr(
+            gw, "_scan_gateway_pids", lambda *_args, **_kwargs: [gateway_pid, manual_pid]
+        )
+        monkeypatch.setattr(gw, "supports_systemd_services", lambda: False)
+
+        assert gw.find_gateway_pids(all_profiles=True) == [wrapper_pid, manual_pid]
+        assert _detect_supervisor_for_pid(gateway_pid, {wrapper_pid}) == "launchd"
+
+        monkeypatch.setattr(fleet, "_drain_or_signal_gateway_for_update", lambda *_args, **_kwargs: True)
+        restart = SimpleNamespace(killed_pids=set())
+        assert signal_stale_fleet_survivors(
+            [{"profile": "default", "pid": gateway_pid, "state": "stale"}], restart, 1.0
+        ) == [gateway_pid]
+        assert "manual gateway" not in capsys.readouterr().out
+
 
 
 def _fleet(monkeypatch, tmp_path, *, current, labels, located,

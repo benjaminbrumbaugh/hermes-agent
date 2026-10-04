@@ -234,6 +234,23 @@ def _get_parent_pid(pid: int) -> int | None:
     return parent_pid if parent_pid > 0 else None
 
 
+def _is_service_managed_gateway_pid(pid: int, service_pids: set[int]) -> bool:
+    """Whether ``pid`` is a service PID or one of its descendants."""
+    current = pid
+    seen: set[int] = set()
+    for _ in range(64):
+        if current in service_pids:
+            return True
+        if current in seen:
+            break
+        seen.add(current)
+        parent = _get_parent_pid(current)
+        if parent is None or parent <= 0:
+            break
+        current = parent
+    return False
+
+
 def _is_pid_ancestor_of_current_process(target_pid: int) -> bool:
     """Return True when ``target_pid`` is this process or one of its ancestors."""
     if target_pid <= 0:
@@ -751,20 +768,24 @@ def find_gateway_pids(exclude_pids: set | None = None, all_profiles: bool = Fals
     """Find running gateway PIDs for the current profile, or every profile with ``all_profiles`` (``hermes update``)."""
     _exclude = set(exclude_pids or set())
     pids: list[int] = []
+    service_pids = _get_service_pids(all_profiles=all_profiles)
     if not all_profiles:
         try:
             from gateway.status import get_running_pid
-            _append_unique_pid(pids, get_running_pid(), _exclude)
+            pid = get_running_pid()
+            if pid is not None and not _is_service_managed_gateway_pid(pid, service_pids):
+                _append_unique_pid(pids, pid, _exclude)
         except Exception:
             pass
-    for pid in _get_service_pids(all_profiles=all_profiles):
+    for pid in service_pids:
         _append_unique_pid(pids, pid, _exclude)
     try:
         include_restart_managers = not supports_systemd_services()
     except Exception:
         include_restart_managers = False
     for pid in _scan_gateway_pids(_exclude, all_profiles=all_profiles, include_restart_managers=include_restart_managers):
-        _append_unique_pid(pids, pid, _exclude)
+        if not _is_service_managed_gateway_pid(pid, service_pids):
+            _append_unique_pid(pids, pid, _exclude)
     return pids
 
 
@@ -5737,4 +5758,3 @@ def _pm_runtime_venv_dir(project_root: Path | None = None) -> Path | None:
 
     venv = selected_venv(root)  # a malformed committed selection raises: fail closed
     return venv if venv.is_dir() else None
-

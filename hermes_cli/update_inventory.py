@@ -67,7 +67,9 @@ def _detect_supervisor_for_pid(pid: int, service_pids: set, windows_service_pids
         # instead of killing the child, so reconciliation must plan it under its own mechanism id.
         # See #91277.
         return "windows-service"
-    if pid not in service_pids:
+    from hermes_cli.gateway import _is_service_managed_gateway_pid
+
+    if not _is_service_managed_gateway_pid(pid, service_pids):
         return "manual"
     with suppress(Exception):
         from hermes_cli.gateway import is_macos, supports_systemd_services

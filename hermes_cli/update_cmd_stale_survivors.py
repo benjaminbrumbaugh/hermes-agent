@@ -37,10 +37,14 @@ def signal_stale_fleet_survivors(fleet: list, restart, drain_budget: float) -> l
     if not pids:
         return []
     try:
-        from hermes_cli.gateway import _get_service_pids
+        from hermes_cli.gateway import _get_service_pids, _is_service_managed_gateway_pid
         service_pids = set(_get_service_pids(all_profiles=True))
     except Exception:
         service_pids = set()
+        is_service_managed = service_pids.__contains__
+    else:
+        def is_service_managed(pid: int) -> bool:
+            return _is_service_managed_gateway_pid(pid, service_pids)
     labels = {row.get("pid"): str(row.get("profile") or "gateway") for row in fleet if isinstance(row, dict)}
     print()
     print(f"  ⚠ {len(pids)} gateway process(es) still run the pre-update code — requesting a restart")
@@ -52,7 +56,7 @@ def signal_stale_fleet_survivors(fleet: list, restart, drain_budget: float) -> l
             if _drain_or_signal_gateway_for_update(pid, drain_budget, label):
                 signalled.append(pid)
                 restart.killed_pids.add(pid)
-                if pid not in service_pids:
+                if not is_service_managed(pid):
                     manual.append(pid)
         except Exception as exc:
             logger.warning("Could not signal stale gateway PID %s: %s", pid, exc)

@@ -234,10 +234,13 @@ def launchd_program_arguments(command: list[str], stdout_log: Path, stderr_log: 
     command because ``system()`` otherwise inherits osascript's plist log handles. The encoded wait status
     is translated back to a process exit code so KeepAlive's ``SuccessfulExit`` semantics are preserved.
     """
-    shell = f"exec {shlex.join(command)} >> {shlex.quote(str(stdout_log))} 2>> {shlex.quote(str(stderr_log))}"
+    exec_command = (
+        f"exec {shlex.join(command)} >> {shlex.quote(str(stdout_log))} "
+        f"2>> {shlex.quote(str(stderr_log))}"
+    )
     javascript = (
         'ObjC.import("stdlib"); '
-        f"const status=$.system({json.dumps(shell)}); "
+        f"const status=$.system({json.dumps(exec_command)}); "
         "const signal=status & 127; "
         "$.exit(status === -1 ? 1 : signal === 0 ? (status >> 8) & 255 : 128 + signal);"
     )
@@ -261,17 +264,14 @@ def _timestamped_stderr_gateway_command(error_log: Path, *, external_supervisor:
     bootout+bootstrap in install/refresh), which run before supervision resumes. Mirrors
     ``generate_systemd_unit``, whose ExecStart also runs ``gateway run`` without ``--replace``.
     """
-    from hermes_cli._launchers import installation_command, runtime_command
+    from hermes_cli._launchers import runtime_command
     inner = _gw()._gateway_run_command()
     if external_supervisor:
-        inner = installation_command(_gw().PROJECT_ROOT, [*shlex.split(_gw()._profile_arg()), "gateway", "run"],
-                                     python=_gw().get_python_path())
         inner = [part for part in inner if part != "--replace"]
         if "--external-supervisor" not in inner:
             inner.append("--external-supervisor")
-    command = installation_command if external_supervisor else runtime_command
-    return command(_gw().PROJECT_ROOT, ["--error-log", str(error_log), "--", *inner],
-                   module="hermes_cli.stderr_timestamp", python=_gw().get_python_path())
+    return runtime_command(_gw().PROJECT_ROOT, ["--error-log", str(error_log), "--", *inner],
+                           module="hermes_cli.stderr_timestamp", python=_gw().get_python_path())
 
 
 def _spawn_detached_gateway() -> bool:

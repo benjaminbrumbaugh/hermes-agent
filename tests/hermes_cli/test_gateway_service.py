@@ -30,13 +30,13 @@ from gateway.restart import (
 
 
 def _osascript_exec_argv(program_args: list[str]) -> list[str]:
-    """The argv the launchd JXA wrapper's libc ``system()`` hands to ``exec``."""
+    """The argv first handed to ``exec`` by the launchd JXA wrapper's libc ``system()``."""
     assert program_args[:4] == ["/usr/bin/osascript", "-l", "JavaScript", "-e"], program_args
     assert len(program_args) == 5, program_args
     script = program_args[4]
     start = script.index("$.system(") + len("$.system(")
     shell, _ = json.JSONDecoder().raw_decode(script, start)
-    exec_, *argv = shlex.split(shell)
+    exec_, *argv = shlex.split(shell.split(" || ", 1)[0])
     assert exec_ == "exec", shell
     return argv
 

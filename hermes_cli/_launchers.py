@@ -46,14 +46,18 @@ def runtime_command(repo_root: Path, args=(), *, module: str = "hermes_cli.main"
         f"runpy.run_module({_inline_string_literal(module)}, run_name='__main__', alter_sys=True)")
     default_home = (_inline_string_literal(str(home)) if home is not None else
                     "str(__import__('hermes_constants').get_default_hermes_root())")
+    startup = (
+        "if not os.environ.get('HERMES_HOME'):\n"
+        f"    os.environ['HERMES_HOME'] = {default_home}\n"
+        "import hermes_bootstrap\n"
+        f"{entry}\n"
+    )
     bootstrap = (
         "import os, sys, runpy; "
         "os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
         "os.environ.pop('VIRTUAL_ENV', None); "
         f"sys.path.insert(0, {_inline_string_literal(str(root))}); "
-        f"os.environ['HERMES_HOME'] = os.environ.get('HERMES_HOME') or {default_home}; "
-        "import hermes_bootstrap; "
-        + entry
+        f"exec({_inline_string_literal(startup)})"
     )
     return [str(python), "-I", "-c", bootstrap, *args]
 
