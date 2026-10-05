@@ -54,7 +54,7 @@ in Lane A before trusting any number. Full-corpus baseline (41 fixtures, 6 snaps
 3. Strict JSON contract; the renderer never parses prose. Schema changes bump `BRIEF_VERSION` and the TS contract regenerates.
 4. One auxiliary call per completed turn, iterative (previous brief + new turns only). No full-transcript resend.
 5. Config stays `auxiliary.session_brief` in `config.yaml`; no env vars.
-6. The ship decision is `report.py` thresholds + the human glance test. Not a reviewer's verdict alone.
+6. The ship decision is `report.py` thresholds + a render tournament where both grader families agree. Not a reviewer's verdict alone. (A human flash-card glance test was built as Lane G and withdrawn at the user's request on 2026-10-04.)
 7. Scope: `agent/session_brief.py`, `hermes_state_brief.py`, `tui_gateway/contracts/common.py::SessionBrief`, `apps/desktop/src/app/right-sidebar/brief.tsx`, `apps/desktop/src/store/session-brief.ts`, i18n strings, and `evals/session_brief/`. Anything else is a separate PR with its own justification.
 
 ## Lanes
@@ -67,8 +67,8 @@ in Lane A before trusting any number. Full-corpus baseline (41 fixtures, 6 snaps
 | **D. Pairwise render tournament** | Vision graders (Space Bunny; a second model family for the final) compare candidates two at a time on the same fixture: "which answers the four questions faster — point at the pixel." Swiss rounds; script aggregates Elo. | C | integration | `tournament.json`, winner + verified findings from losers |
 | **E. Integration** | Merge winning prompt (B) + winning layout (D); fold verified findings; regenerate contracts; i18n for all locales | B, D | review | integrated branch |
 | **F. Adversarial review rounds** | Per `adversarial-plan-review`: parallel multi-family read-only reviewers; findings `claim / evidence / change / severity`; integrator verifies every finding against the artifact; serial rounds until a round rejects nothing; confirmation gate `CONFIRMED | NOT-CONFIRMED` | E | merge gate | review records in `evals/session_brief/reviews/<date>/` |
-| **G. Human glance test** | 10 fixtures flashed to the user (2 s), four answers recorded, scored by script against truth | F | ship decision | `glance-test.json` |
-| **H. Ship** | PR to `main_plus_our_prs`; `report.py` thresholds asserted in PR body; app rebuilt via updater | F, G | user | merged PR |
+| **G. (withdrawn)** | Human flash-card glance test — built, then removed at the user's request; the two-family tournament agreement is the glanceability gate | — | — | — |
+| **H. Ship** | PR to `main_plus_our_prs`; `report.py` thresholds asserted in PR body; app rebuilt via updater | F | user | merged PR |
 
 Widest wave: B (8) ∥ C (6) → pool of 14 polecats + graders. Generation/grading jobs are not polecats; they are
 `runner.py` runs at up to 256 concurrent requests.
@@ -91,9 +91,8 @@ corpus/` path passed explicitly). Nothing in the program touches `~/.hermes` sta
 
 - `report.py` says `ships: true` for the shipped variant on the full corpus.
 - Tournament winner beats the current render by > 100 Elo with ≥ 2 grader families agreeing.
-- Human glance test ≥ 90 % correct on the four answers.
 - All existing brief tests + `test_session_brief_eval_contract.py` green; desktop vitest/tsc/eslint green.
-- **Not proved by this program:** long-run cost of the aux call at scale (observe via `auxiliary` usage after ship); non-English locales' glanceability (strings translated, not glance-tested).
+- **Not proved by this program:** long-run cost of the aux call at scale (observe via `auxiliary` usage after ship); non-English locales' glanceability (strings translated only); human glanceability directly (the human test was withdrawn — the two-family tournament is the proxy).
 
 ## Adversarial review record
 
