@@ -232,8 +232,8 @@ class TestDisplayDedupe:
             writer._execute_write(lambda conn: conn.execute(
                 "UPDATE messages SET content = 'rewound', active = 0, compacted = 0"), patience_s=0)
 
-        def rewind_after_identity(key):
-            result = identity(key)
+        def rewind_after_identity(key, **kwargs):
+            result = identity(key, **kwargs)
             if journal_mode == "wal":
                 rewind()
             else:
@@ -270,7 +270,7 @@ class TestDisplayDedupe:
         connection = reader._conn
         assert connection is not None
 
-        def abort_then_fail(key):
+        def abort_then_fail(key, **kwargs):
             connection.execute("ROLLBACK")
             raise sqlite3.OperationalError("disk I/O error")
 
