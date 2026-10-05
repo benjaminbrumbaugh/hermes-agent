@@ -1254,20 +1254,33 @@ class SessionMessagesMixin:
         return bool((self._decode_display_metadata(row["display_metadata"]) or {}).get(MODEL_ONLY_DISPLAY_METADATA_KEY))
 
     @staticmethod
-    def _display_identity(key: Tuple[Any, ...]) -> bytes:
-        """Fixed-width durable identity for indexed display-generation lookup."""
-        return hashlib.sha256(repr(key).encode("utf-8", "surrogatepass")).digest()
+    def _display_identity(key: Tuple[Any, ...], *, uid: Any = None,
+                          by_uid: Optional[Dict[str, bytes]] = None) -> bytes:
+        """Fixed-width display identity; a durable uid witnesses differently encoded generations.
+
+        Flush projects images to text while compaction may retain multipart grounding.
+        Fold those copies onto their earliest visible identity, not a fresh user turn.
+        Keep the content-based fallback for legacy generations without a shared uid.
+        """
+        identity = hashlib.sha256(repr(key).encode("utf-8", "surrogatepass")).digest()
+        if by_uid is not None and isinstance(uid, str) and uid:
+            return by_uid.setdefault(uid, identity)
+        return identity
 
     def _dedupe_display_generations(self, rows):
         """Collapse compaction generations so each logical message appears once (the protected tail is copied
         into each generation: same role/content/timestamp, different ``active``/id); prefer the live row, then
         the newest. The ONE definition every display projection shares. *rows* must be ordered by ``id``."""
-        seen: Dict[Tuple[Any, ...], Any] = {}
-        first_id: Dict[Tuple[Any, ...], int] = {}
+        seen: Dict[bytes, Any] = {}
+        first_id: Dict[bytes, int] = {}
+        identity_by_uid: Dict[str, bytes] = {}
         for row in rows:
             if self._is_model_only_row(row):
                 continue
-            key = self._display_dedupe_key(row)
+            key = self._display_identity(
+                self._display_dedupe_key(row),
+                uid=row["message_uid"] if "message_uid" in row.keys() else None,
+                by_uid=identity_by_uid)
             cur = seen.get(key)
             if cur is None or (row["active"], row["id"]) > (cur["active"], cur["id"]):
                 seen[key] = row
@@ -1286,11 +1299,12 @@ class SessionMessagesMixin:
         on one definition of a logical message; the live copy wins its group via the read
         path's ``ORDER BY candidate.active DESC, candidate.id DESC``. Writes only on drift."""
         first_id: Dict[bytes, int] = {}
+        identity_by_uid: Dict[str, bytes] = {}
         last_id = 0
         while True:
             rows = conn.execute(
                 "SELECT id, role, content, timestamp, tool_call_id, tool_calls, tool_name, "
-                "display_kind, display_metadata, display_order, display_identity "
+                "display_kind, display_metadata, display_order, display_identity, message_uid "
                 "FROM messages INDEXED BY idx_messages_session_id "
                 "WHERE session_id = ? AND id > ? AND (active = 1 OR compacted = 1) "
                 "ORDER BY id LIMIT 1000",
@@ -1299,7 +1313,8 @@ class SessionMessagesMixin:
             updates = []
             for row in rows:
                 last_id = row["id"]
-                identity = self._display_identity(self._display_dedupe_key(row))
+                identity = self._display_identity(
+                    self._display_dedupe_key(row), uid=row["message_uid"], by_uid=identity_by_uid)
                 order = first_id.setdefault(identity, last_id)
                 if order != row["display_order"] or identity != row["display_identity"]:
                     updates.append((order, identity, last_id))
@@ -1333,9 +1348,11 @@ class SessionMessagesMixin:
                              latest: bool) -> List[Any]:
         """Project a legacy read-only display page without retaining transcript payloads."""
         representatives: Dict[bytes, Tuple[int, int]] = {}
+        identity_by_uid: Dict[str, bytes] = {}
         with self._read_ctx() as conn:
             conn.execute("BEGIN")
             try:
+                uid_column = "message_uid" if "message_uid" in self._message_column_names(conn) else "NULL AS message_uid"
                 has_session_index = conn.execute(
                     "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
                     ("idx_messages_session_id",),
@@ -1343,13 +1360,14 @@ class SessionMessagesMixin:
                 index_hint = "INDEXED BY idx_messages_session_id" if has_session_index else "NOT INDEXED"
                 rows = conn.execute(
                     "SELECT id, role, content, timestamp, tool_call_id, tool_calls, tool_name, active, "
-                    f"display_kind, display_metadata FROM messages {index_hint} "
+                    f"display_kind, display_metadata, {uid_column} FROM messages {index_hint} "
                     f"WHERE session_id = ?{active_clause} ORDER BY id ASC",
                     (session_id,))
                 for row in rows:
                     if self._is_model_only_row(row):
                         continue
-                    identity = self._display_identity(self._display_dedupe_key(row))
+                    identity = self._display_identity(
+                        self._display_dedupe_key(row), uid=row["message_uid"], by_uid=identity_by_uid)
                     current = representatives.get(identity)
                     candidate = (row["active"], row["id"])
                     if current is None or candidate > current:
