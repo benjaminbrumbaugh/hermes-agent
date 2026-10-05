@@ -15,11 +15,13 @@ Backend remains authoritative; brief remains an off-turn sidecar, never injected
 ## No-change boundaries
 No Gas City mutation, new scheduler, core tools, configuration/credential changes, broad home discovery, automatic SOUL deployment, or unrelated repository changes. Preserve foreign deliverables and worktrees.
 
-## State
-Implementation complete on `feat/session-brief-task-context`, targeting fork `origin/main_plus_our_prs` (PR #13). The focused backend/state/RPC/eval suite passes 53 tests. Frontend checks pass 113 tests, TypeScript and scoped ESLint. The production renderer build passes. Four actual-model output fixtures render successfully through the existing production component/theme harness; recorded-topic and paused-parent/completed-child screenshots were inspected.
+## Verified contract
+PR #13 implements this contract on the fork's `main_plus_our_prs` delivery line. The focused backend/state/RPC/eval suite passes 53 tests. Frontend checks pass 113 tests, TypeScript and scoped ESLint. The production renderer build passes. Four actual-model output fixtures render successfully through the existing production component/theme harness; recorded-topic and paused-parent/completed-child screenshots were inspected.
 
 Independent review reproduced an overlapping-refresh defect: snapshot carry-forward could revert a task paused while the auxiliary call was running. The regression failed on those bytes; generation now validates against its snapshot but hands persistence only explicitly returned task IDs. The transaction retains omitted tasks from current committed history, and callbacks publish persisted readback. The regression verifies both omission retention and an explicit subsequent resume.
 
 Independent re-review approved the race remedy. Active-only replay of the legacy compressed source reproduced missing named-topic context: only two vague follow-ups remained. A real-SQLite regression proves recovery from compacted history and exclusion of undone requests. Legacy rebuild now reads that history through the existing canonical API, in the off-turn worker, with current live turns appended last; v3 updates do not perform this migration read.
 
-Remaining delivery gates: independent review of legacy migration, real-model replay through final generation/persistence bytes, clean-commit package/signature verification, merge, and installation. Relaunch must occur at a quiet session boundary. No original session state has been overwritten for replay.
+Independent review approved the legacy migration and endpoint clarification. Real Codex replay through final generation, SQLite persistence and callback readback passes all four cases: recorded compressed-topic recovery, active parent, completed detour with paused parent, and stable-ID resumption. The source database is read-only; writes target a disposable replay database.
+
+Package/signature and installation receipts belong in PR #13 rather than ignored replay output. Relaunch must occur at a quiet session boundary. Copied bytes and a valid signature prove artifact delivery, not that the running app has restarted onto them.
