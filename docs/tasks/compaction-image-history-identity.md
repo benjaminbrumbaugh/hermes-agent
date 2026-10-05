@@ -2,7 +2,7 @@
 
 Base: `66d7e2ad455376ccdd7509737b566f185f3bb181` (`origin/main_plus_our_prs`, remote reverified before delivery).
 Fork issues are disabled; this tracked task is the continuation record.
-Branch: `fix/compaction-image-history-identity`. Await parent exact-byte review; do not merge.
+Branch: `fix/compaction-image-history-identity`. Parent exact-byte review completed; source integration authorized after the scoped gate below.
 
 ## Verified cause and source boundary
 
@@ -67,4 +67,6 @@ Official latest session-storage documentation was fetched and inspected; the sou
 
 ## Continuation
 
-Ready for parent exact-byte review of the focused commit/PR. Do not merge, deploy, restart services, or mutate production transcripts. Any retrospective index-healing policy or live-session repair needs separate review/authorization.
+Parent independently inspected the production diff and behavioral tests, reproduced both failures on the untouched base (exit 1), and reran the 17-file scoped gate (299 passed, exit 0). Programmatic comparison of broad-gate failure node IDs confirmed no fix-only failures and exactly the two new regressions removed. PR #12 targets the fork's `main_plus_our_prs`; source merge is authorized. This completes source verification, not runtime rollout.
+
+Do not deploy, restart services, or mutate production transcripts as part of this source delivery. Existing materialized display indexes remain unchanged until reconciliation runs under the corrected code. Retrospective index healing or a live-session repair requires a separately reviewed, scoped operation; no transcript deletion or rewrite is necessary for the source fix.
