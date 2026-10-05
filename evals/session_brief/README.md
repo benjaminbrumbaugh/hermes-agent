@@ -4,6 +4,13 @@ The oracle for the Brief-pane design program (`evals/session_brief/PLAN.md`).
 Measures whether a brief lets a returning user answer **done / waiting on me / running / about what** in a
 glance, against real transcripts.
 
+Contextual follow-ups must retain the concrete subject; only a material user pivot replaces it.
+Production refreshes include up to 12 earlier direct user requests alongside the new-turn delta,
+without replaying old assistant/tool outcomes. The previous brief alone is not sufficient topic
+evidence: an already-vague draft must not make "check in on them" the conversation's goal.
+Synthetic delegation and compaction rows remain excluded. If compaction has removed all direct
+topic evidence, the previous goal is the remaining context; the writer must not invent a referent.
+
 ```bash
 # 1. corpus from a local state.db (REAL data; temp/ is gitignored — never commit it)
 .venv/bin/python evals/session_brief/extract_corpus.py --db ~/.hermes/state.db --out temp/session-brief-corpus --per-bucket 60 --max-messages 6000
