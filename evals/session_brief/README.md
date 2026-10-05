@@ -10,6 +10,9 @@ without replaying old assistant/tool outcomes. The previous brief alone is not s
 evidence: an already-vague draft must not make "check in on them" the conversation's goal.
 Synthetic delegation and compaction rows remain excluded. If compaction has removed all direct
 topic evidence, the previous goal is the remaining context; the writer must not invent a referent.
+Refresh gating and both evidence renderers share the same direct-user predicate. Exact canonical
+steer wrappers retain their user text; lookalike wrappers do not. A synthetic-only delta cannot
+trigger a refresh that promotes historical context to a new controlling request.
 
 ```bash
 # 1. corpus from a local state.db (REAL data; temp/ is gitignored — never commit it)

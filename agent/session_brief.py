@@ -118,11 +118,24 @@ def _elide(text: str, limit: int) -> str:
     return f"{text[:head]} ... {text[-tail:]}"
 
 
+def _direct_user_text(message: Any) -> str:
+    """One authority predicate for refresh gating, history, and latest-request anchors."""
+    from agent.context_compressor import _synthetic_user_row
+    from agent.conversation_compression import _is_real_user_message
+    from agent.prompt_builder import STEER_MARKER_CLOSE, STEER_MARKER_OPEN
+
+    if not _is_real_user_message(message):
+        return ""
+    content = (flatten_message_text(message.get("content")) or "").strip()
+    if content.startswith(STEER_MARKER_OPEN + "\n") and content.endswith("\n" + STEER_MARKER_CLOSE):
+        return content[len(STEER_MARKER_OPEN):-len(STEER_MARKER_CLOSE)].strip()
+    return "" if _synthetic_user_row(content) else content
+
+
 def _render_turn_delta(messages: List[Any]) -> str:
     """Labeled, trimmed text of the turns since the last brief; tool results elided, think blocks dropped."""
     from agent.agent_runtime_helpers import strip_think_blocks
-    from agent.context_compressor import _redact_compaction_text, _synthetic_user_row
-    from agent.conversation_compression import _is_real_user_message
+    from agent.context_compressor import _redact_compaction_text
 
     parts: List[str] = []
     latest_user = ""
@@ -133,8 +146,9 @@ def _render_turn_delta(messages: List[Any]) -> str:
         role = str(msg.get("role") or "")
         if role == "system":
             continue
-        content = _redact_compaction_text(flatten_message_text(msg.get("content")) or "")
-        if role == "user" and (not _is_real_user_message(msg) or _synthetic_user_row(content)):
+        content = _direct_user_text(msg) if role == "user" else flatten_message_text(msg.get("content")) or ""
+        content = _redact_compaction_text(content)
+        if role == "user" and not content:
             continue
         if role == "assistant" and content:
             content = strip_think_blocks(None, content)
@@ -171,8 +185,7 @@ def _render_brief_input(messages: List[Any]) -> str:
     explicit prevents old plans and quoted tool text from becoming invented current outcomes.
     """
     from agent.agent_runtime_helpers import strip_think_blocks
-    from agent.context_compressor import _redact_compaction_text, _synthetic_user_row
-    from agent.conversation_compression import _is_real_user_message
+    from agent.context_compressor import _redact_compaction_text
 
     user_turns: List[str] = []
     assistant_turns: List[str] = []
@@ -183,8 +196,9 @@ def _render_brief_input(messages: List[Any]) -> str:
         role = str(msg.get("role") or "")
         if role == "system":
             continue
-        content = _redact_compaction_text(flatten_message_text(msg.get("content")) or "")
-        if role == "user" and (not _is_real_user_message(msg) or _synthetic_user_row(content)):
+        content = _direct_user_text(msg) if role == "user" else flatten_message_text(msg.get("content")) or ""
+        content = _redact_compaction_text(content)
+        if role == "user" and not content:
             continue
         if role == "assistant":
             if msg.get("tool_calls"):
@@ -425,16 +439,13 @@ def maybe_update_brief(agent: Any, messages: List[Any]) -> Optional[threading.Th
         logger.debug("Session brief read failed; rebuilding from the full transcript", exc_info=True)
         previous = None
     delta = _turns_since(messages, previous)
-    if not any(isinstance(m, dict) and m.get("role") == "user" for m in delta):
+    if not any(_direct_user_text(m) for m in delta):
         return None
     # Follow-ups need their referents even after an earlier brief lost the topic.
     # Replay only direct requests: old assistant plans/results must not become current evidence.
-    from agent.context_compressor import _synthetic_user_row
-    from agent.conversation_compression import _is_real_user_message
     earlier_requests = [
         m for m in messages[:len(messages) - len(delta)]
-        if isinstance(m, dict) and m.get("role") == "user" and _is_real_user_message(m)
-        and not _synthetic_user_row(flatten_message_text(m.get("content")) or "")
+        if _direct_user_text(m)
     ][-12:]
     evidence_messages = earlier_requests + delta
     main_runtime = {
