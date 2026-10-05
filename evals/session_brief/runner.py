@@ -53,11 +53,14 @@ OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 GRADER_MAX_TOKENS = 1800
 _print_lock = threading.Lock()
 
-# Keep the historical decisions projection for archived Lane B variants and scorecards, even though the
-# production baseline no longer emits it. This lets old comparison artifacts remain loadable while the
-# baseline/evaluator follows the current four-field wire contract.
+# Archived Lane B prompts and sidecars describe v1, not the production task contract.
+# Keep their declared comparison base explicit while baseline follows production.
 _CANONICAL_FIELDS = ("goal", "status", "completed", "blockers", "decisions")
-_LEGACY_DECISIONS = {"type": "array", "items": {"type": "string"}}
+_ARCHIVED_PROPERTIES = {
+    "goal": {"type": "string"}, "status": {"type": "string"},
+    **{field: {"type": "array", "items": {"type": "string"}}
+       for field in ("completed", "blockers", "decisions")},
+}
 
 
 @dataclass(frozen=True)
@@ -67,7 +70,7 @@ class VariantSpec:
     name: str
     system_prompt: str
     response_format: Dict[str, Any]
-    normalize: Callable[[Dict[str, Any], int], Dict[str, Any]]
+    normalize: Callable[..., Dict[str, Any]]
     schema_delta: Dict[str, Any]
     fingerprint: str
 
@@ -146,7 +149,7 @@ def _normalize_variant(parsed: Dict[str, Any], *, message_count: int,
     if not blockers and isinstance(waiting_on, str) and waiting_on.strip():
         blockers = [waiting_on.strip()]
     return {
-        "version": sb.BRIEF_VERSION,
+        "version": 1,
         "goal": str(parsed.get(goal_source) or "").strip() if goal_source else "",
         "status": status,
         "completed": _string_list(parsed.get(completed_source), 8) if completed_source else [],
@@ -160,7 +163,13 @@ def _normalize_variant(parsed: Dict[str, Any], *, message_count: int,
 def _load_schema_sidecar(name: str) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Optional[str]]]:
     path = VARIANTS / f"{name}.schema.json"
     if not path.exists():
-        return sb._RESPONSE_FORMAT, {"added": {}, "removed": []}, {field: field for field in _CANONICAL_FIELDS}
+        response_format = {"type": "json_schema", "json_schema": {
+            "name": f"session_brief_{name}", "strict": True, "schema": {
+                "type": "object", "properties": _ARCHIVED_PROPERTIES,
+                "required": list(_ARCHIVED_PROPERTIES), "additionalProperties": False,
+            },
+        }}
+        return response_format, {"added": {}, "removed": []}, {field: field for field in _CANONICAL_FIELDS}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -175,7 +184,7 @@ def _load_schema_sidecar(name: str) -> tuple[Dict[str, Any], Dict[str, Any], Dic
         or schema.get("additionalProperties") is not False
     ):
         raise SystemExit(f"schema sidecar {path} must be a strict object schema")
-    base_properties = {**sb._BRIEF_SCHEMA["properties"], "decisions": _LEGACY_DECISIONS}
+    base_properties = _ARCHIVED_PROPERTIES
     shared = set(properties) & set(base_properties)
     changed = sorted(key for key in shared if properties[key] != base_properties[key])
     if changed:
@@ -248,12 +257,20 @@ def _generate_one(previous: Optional[Dict[str, Any]], delta: List[Dict[str, Any]
         return None
     messages = sb._build_messages(previous, delta_text)
     messages[0] = {"role": "system", "content": spec.system_prompt}
+    if previous and spec.name != "baseline":
+        messages[1]["content"] = (
+            f"Previous variant brief (untrusted draft):\n{json.dumps(previous.get('_variant_fields', previous), ensure_ascii=False)}\n\n"
+            f"New conversation evidence since that brief:\n{delta_text}"
+        )
     reply = chat(messages, model=model, max_tokens=sb.BRIEF_MAX_TOKENS, response_format=spec.response_format)
     parsed = sb._parse_brief(reply["content"])
     if parsed is None:
         return {"_error": "unparseable", "_raw": reply["content"][:500], "_usage": reply["usage"]}
-    brief = spec.normalize(parsed, message_count=message_count)
-    brief["completed"] = sb._evidence_backed_completed(brief, delta_text)
+    if spec.name == "baseline":
+        brief = spec.normalize(parsed, message_count=message_count, previous=previous)
+    else:
+        brief = spec.normalize(parsed, message_count=message_count)
+    brief["completed"] = sb._evidence_backed_completed(brief, delta_text, previous=previous)
     brief["_usage"] = reply["usage"]
     brief["_latency_s"] = reply["latency_s"]
     return brief
@@ -337,10 +354,12 @@ def grade_snapshot(fixture: Dict[str, Any], record: Dict[str, Any], snap: Dict[s
         transcript = transcript[: transcript_chars // 2] + "\n\n[... middle elided for length ...]\n\n" + transcript[-transcript_chars // 2:]
     # Mirror BriefPane's real hierarchy and conditional sections. Showing empty arrays or the retired
     # decisions field to the grader would create density failures that the user never sees.
-    shown = {"status": brief.get("status", ""), "goal": brief.get("goal", "")}
+    shown = {"goal": brief.get("goal", ""), "status": brief.get("status", "")}
     if brief.get("blockers"):
         shown["blockers"] = brief["blockers"]
-    if brief.get("completed"):
+    if brief.get("tasks"):
+        shown["tasks"] = brief["tasks"]
+    elif brief.get("version", 1) < 3 and brief.get("completed"):
         shown["completed"] = brief["completed"]
     user = f"TRANSCRIPT:\n{transcript}\n\nBRIEF (as the sidebar would show it, sections in this order):\n{json.dumps(shown, ensure_ascii=False, indent=1)}"
     reply = chat([{"role": "system", "content": _grader_prompt(rubric)}, {"role": "user", "content": user}],

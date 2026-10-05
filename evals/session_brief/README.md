@@ -4,10 +4,32 @@ The oracle for the Brief-pane design program (`evals/session_brief/PLAN.md`).
 Measures whether a brief lets a returning user answer **done / waiting on me / running / about what** in a
 glance, against real transcripts.
 
-Contextual follow-ups must retain the concrete subject; only a material user pivot replaces it.
-Production refreshes include up to 12 earlier direct user requests alongside the new-turn delta,
-without replaying old assistant/tool outcomes. The previous brief alone is not sufficient topic
+## Current production contract (v3)
+
+The model returns `goal/status/tasks/blockers`; persistence and gateway wire additionally retain
+`completed`, `version`, `updated_at` and `message_count`. Current goal is a verb-led conversation
+action, not a static feature noun phrase. A contextual follow-up retains the named subject but updates
+the activity (for example, "Check calendar repair progress").
+
+Each task has stable `id`, nullable `parent_id`, verb-led `goal`, explicit `status`, and compact
+`detail`. States are `pending/in_progress/waiting/paused/timed_wait/completed/cancelled`.
+Task history records salient conversation work, not external feature milestones or execution todos.
+Omitted previous IDs remain unchanged; detours pause parents, completed children do not complete
+parents, and resumption reuses IDs. Duplicate IDs, changed parent links, missing parents, invalid
+states and cycles reject the update without overwriting previous work. Persistence merges tasks
+atomically against the current lineage brief as well as generation merging its previous context.
+Legacy rows stay readable with `tasks: []`; legacy outcomes never manufacture a task hierarchy.
+
+Production v3 refreshes include up to 12 earlier direct user requests alongside the new-turn delta.
+The first legacy-to-v3 refresh rebuilds from the available transcript; the writer receives only
+bounded evidence: up to 8 paired historical direct requests/assistant final responses, the latest
+assistant response, and up to 3 tool results after the latest direct request. Historical outcomes
+are explicitly labeled **not authority for current goal/state/latest-request completion**. Tool-call
+plans are excluded; old tool results cannot become current outcome evidence. The whole evidence
+view remains capped at 24,000 characters. The previous brief alone is not sufficient topic
 evidence: an already-vague draft must not make "check in on them" the conversation's goal.
+Previous task context is included and redacted. Output budget is 4,096 tokens; the model may emit
+only changed/new tasks because omitted tasks are retained by stable ID.
 Synthetic delegation and compaction rows remain excluded. If compaction has removed all direct
 topic evidence, the previous goal is the remaining context; the writer must not invent a referent.
 Refresh gating and both evidence renderers share the same direct-user predicate. Exact canonical
@@ -29,7 +51,11 @@ node evals/session_brief/render.mjs --fixtures temp/session-brief-eval/run1/base
 ```
 
 - `rubric.md` — failure modes and ship thresholds. `report.py` mirrors the thresholds; the contract test keeps them equal.
-- `variants/<name>.md` — a competing system prompt. `baseline` is always the shipped prompt (`agent.session_brief._SYSTEM_PROMPT`).
+- `variants/<name>.md` — archived v1/v2 competing prompts; not evidence that the current v3 contract ships.
+  `baseline` is always the shipped prompt (`agent.session_brief._SYSTEM_PROMPT`). V3 eval integration
+  must pass `previous` to normalization and use the same evidence rebuild policy as production.
+  Old variant schema deltas must be rebased to v3 or explicitly evaluated against a frozen legacy
+  schema, never silently compared as current-contract variants.
 - `render.mjs` drives `apps/desktop/src/app/brief-fixture/` (`?win=brief-fixture`, DEV builds only) — the real
   `BriefPane` with real theme tokens, i18n and stores, no Electron. `*.glance.png` is the first 240 px.
 - Model: `stealth/space-bunny-alpha` via OpenRouter (`OPENROUTER_API_KEY` from env or `~/.hermes/.env`), ~256

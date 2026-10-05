@@ -4,6 +4,11 @@
 > prompt/schema (`agent/session_brief.py`), ONE store. No design system, no new RPC, no new core tool, nothing
 > injected into the model prompt. Every lane names its consumer; every number comes from a checked-in script.
 
+**Contract note (v3):** This document records the original design program. Current acceptance is
+`task-context-delivery.md` and the v3 contract in `README.md`/`rubric.md`: verb-led current actions,
+stable longitudinal conversation tasks, preserved parents through detours, and bounded historical
+paired outcomes on the first legacy refresh. Archived v1/v2 measurements do not validate v3.
+
 **Status:** Phase 0 complete; convoy minted 2026-10-02 as epic `ha-7nh` (lanes ha-rvo A, ha-bj0 B, ha-dab C, ha-z6q D, ha-lt6 E, ha-fsd F, ha-0ba G, ha-4lv H). Re-mint artifact: `graph-plan.json`.
 
 ## Goal
@@ -52,7 +57,7 @@ in Lane A before trusting any number. Full-corpus baseline (41 fixtures, 6 snaps
 1. The brief is a human-only sidecar. Nothing from it enters the model prompt. Caching untouched.
 2. Backend is authoritative; the renderer never derives brief content from the transcript.
 3. Strict JSON contract; the renderer never parses prose. Schema changes bump `BRIEF_VERSION` and the TS contract regenerates.
-4. One auxiliary call per completed turn, iterative (previous brief + new turns only). No full-transcript resend.
+4. One auxiliary call per completed turn, iterative (previous task context + bounded new evidence). First legacy refresh and compression rebuild include bounded paired historical responses, never a full model-facing transcript resend.
 5. Config stays `auxiliary.session_brief` in `config.yaml`; no env vars.
 6. The ship decision is `report.py` thresholds + a render tournament where both grader families agree. Not a reviewer's verdict alone. (A human flash-card glance test was built as Lane G and withdrawn at the user's request on 2026-10-04.)
 7. Scope: `agent/session_brief.py`, `hermes_state_brief.py`, `tui_gateway/contracts/common.py::SessionBrief`, `apps/desktop/src/app/right-sidebar/brief.tsx`, `apps/desktop/src/store/session-brief.ts`, i18n strings, and `evals/session_brief/`. Anything else is a separate PR with its own justification.

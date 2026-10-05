@@ -1,4 +1,4 @@
-import type { SessionBrief } from '@hermes/shared'
+import type { SessionBrief, SessionBriefTask } from '@hermes/shared'
 import { atom } from 'nanostores'
 
 import { stableRecord } from '@/lib/stable-array'
@@ -19,6 +19,48 @@ export const $briefsBySession = atom<Record<string, SessionBrief>>({})
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every(item => typeof item === 'string')
 
+const TASK_STATES: readonly SessionBriefTask['status'][] = [
+  'pending',
+  'in_progress',
+  'waiting',
+  'paused',
+  'timed_wait',
+  'completed',
+  'cancelled'
+]
+
+const isTaskArray = (value: unknown): value is SessionBriefTask[] => {
+  if (!Array.isArray(value)) {
+    return false
+  }
+
+  const ids = new Set<string>()
+
+  return value.every(item => {
+    if (!item || typeof item !== 'object') {
+      return false
+    }
+
+    const task = item as Partial<SessionBriefTask>
+
+    if (
+      typeof task.id !== 'string' ||
+      !task.id ||
+      ids.has(task.id) ||
+      (task.parent_id !== null && typeof task.parent_id !== 'string') ||
+      typeof task.goal !== 'string' ||
+      typeof task.detail !== 'string' ||
+      !TASK_STATES.includes(task.status as SessionBriefTask['status'])
+    ) {
+      return false
+    }
+
+    ids.add(task.id)
+
+    return true
+  })
+}
+
 const isBrief = (value: unknown): value is SessionBrief => {
   if (!value || typeof value !== 'object') {
     return false
@@ -31,6 +73,7 @@ const isBrief = (value: unknown): value is SessionBrief => {
     typeof candidate.goal === 'string' &&
     typeof candidate.status === 'string' &&
     isStringArray(candidate.completed) &&
+    (candidate.tasks === undefined || isTaskArray(candidate.tasks)) &&
     isStringArray(candidate.blockers) &&
     typeof candidate.updated_at === 'number' &&
     typeof candidate.message_count === 'number'

@@ -2,7 +2,7 @@
 
 One small auxiliary call after a completed turn (same off-path daemon-thread pattern as
 ``agent.title_generator``) produces or iteratively updates a compact structured document — goal, current state,
-completed work, and blockers — that the desktop right sidebar renders. It is a sidecar for the
+longitudinal conversation tasks, and blockers — that the desktop right sidebar renders. It is a sidecar for the
 person, not the model: nothing here is injected into the prompt, so per-conversation caching is untouched.
 
 Iterative update: the previous brief, new turns, and bounded direct-user context are sent, never the whole
@@ -20,14 +20,15 @@ from typing import Any, Callable, Dict, List, Optional
 
 from agent.auxiliary_client import call_llm
 from agent.message_content import flatten_message_text
+from agent.session_brief_tasks import TASK_STATES, normalize_tasks
 
 logger = logging.getLogger(__name__)
 
 TASK_NAME = "session_brief"
-BRIEF_VERSION = 2
+BRIEF_VERSION = 3
 
-# Output budget: four compact fields as JSON; a reasoning model's thinking must fit too.
-BRIEF_MAX_TOKENS = 1200
+# Hierarchical task history plus reasoning must fit without truncating the JSON.
+BRIEF_MAX_TOKENS = 4096
 # Per-message body cap handed to the model (head+tail elision), and the whole-delta cap.
 _MESSAGE_CHARS = 1800
 _DELTA_CHARS = 24000
@@ -44,10 +45,19 @@ _BRIEF_SCHEMA = {
     "properties": {
         "goal": {"type": "string"},
         "status": {"type": "string"},
-        "completed": {"type": "array", "items": {"type": "string"}},
+        "tasks": {"type": "array", "items": {
+            "type": "object", "properties": {
+                "id": {"type": "string"},
+                "parent_id": {"type": ["string", "null"]},
+                "goal": {"type": "string"},
+                "status": {"type": "string", "enum": list(TASK_STATES)},
+                "detail": {"type": "string"},
+            }, "required": ["id", "parent_id", "goal", "status", "detail"],
+            "additionalProperties": False,
+        }},
         "blockers": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["goal", "status", "completed", "blockers"],
+    "required": ["goal", "status", "tasks", "blockers"],
     "additionalProperties": False,
 }
 _RESPONSE_FORMAT = {
@@ -57,13 +67,17 @@ _RESPONSE_FORMAT = {
 
 _SYSTEM_PROMPT = """You maintain a tiny running status brief for a user returning to an AI-agent conversation. Reply with ONLY a JSON object matching this shape:
 
-{"goal": string, "status": string, "completed": [string], "blockers": [string]}
+{ "goal": string, "status": string, "tasks": [{"id": string, "parent_id": string|null, "goal": string, "status": string, "detail": string}], "blockers": [string]}
 
 - status: begin with exactly one state label: DONE:, WAITING ON YOU:, RUNNING:, ABANDONED:, or UNCLEAR:.
-- goal: a self-contained noun phrase naming the concrete subject and intended outcome in the user's own terms. A returning user must know what this conversation is about without its title or transcript. Replace it after a material pivot, not after a follow-up.
-- Name the feature or problem being advanced, not its execution machinery (agents, batches, convoys) unless that machinery is itself the subject. Preserve a defining relationship or direction, such as two-way communication between named systems, when it distinguishes the topic.
-- Resolve follow-ups such as "check in on them", "keep going", "finish it", and "what is left?" against direct user request history and the previous goal. Keep the named subject; never use an unresolved pronoun or a generic activity as the goal. For example, a calendar-sync repair followed by "check on it" stays "Calendar sync repair progress", not "Check on it". Do not copy this example unless it is the actual subject.
-- completed: at most 4 concrete user-relevant outcomes, newest last. Merge duplicates and omit process chores. Carry an earlier outcome forward only when it remains true and relevant; do not invent a new outcome from the previous draft. One outcome per item, at most 60 characters.
+- goal: a verb-led, self-contained current conversation action naming the subject in the user's own terms. Reflect the current request, including a detour or follow-up, not a static feature title. For a bridge or communication path, explicitly name BOTH endpoints in the goal itself; naming the other participant only in status or tasks is insufficient.
+- Name the feature or problem being advanced, not its execution machinery (agents, batches, convoys) unless that machinery is itself the subject. Preserve a defining relationship or direction, such as two-way communication between named systems, when it distinguishes the topic. Name both endpoints of a communication relationship, not just one participant.
+- Resolve follow-ups such as "check in on them", "keep going", "finish it", and "what is left?" against direct user request history and the previous goal. Keep the named subject; never use an unresolved pronoun or a generic activity as the goal. For example, a calendar-sync repair followed by "check on it" becomes "Check calendar sync repair progress", not "Check on it". Do not copy this example unless it is the actual subject.
+- Return new or changed tasks; unchanged tasks may be omitted because the backend retains them. Do not accumulate one task per turn or tool.
+- tasks: longitudinal conversation activities, not external feature milestones, execution todos, turns or tool calls. Keep one salient task per named activity. Reuse stable IDs from the previous tasks, with nullable parent_id. Preserve omitted previous tasks; omission never completes or deletes work. Keep goal verb-led and detail compact observed state or resume context.
+- Task states: pending (not started), in_progress (observed active work), waiting (ordinary dependency/user wait), paused (deferred for a detour), timed_wait (explicit time-bound wait only), completed (requested conversation outcome delivered), cancelled (explicitly cancelled). Explicitly update each changed state.
+- Detours pause and preserve the parent; completing a child does not complete its parent. Resume the same parent ID when returning. Never change an existing parent link, duplicate IDs, create cycles or reference a nonexistent parent. Cancelled work stays cancelled unless the user explicitly resumes it.
+- Historical paired assistant responses may establish earlier conversation accomplishments, never the current goal/state or completion of the latest request. Exclude plans and unverified claims; do not translate legacy completed feature outcomes into tasks. New task completion requires an evidenced delivered conversation action, such as an explanation, review, diagnosis or requested implementation.
 - blockers: only exact actions, choices, confirmations, or approvals the user must provide. Empty array if none. Action first, at most 60 characters.
 - Never write generic telemetry such as "the latest assistant turn is done/unclear" or "no current user request is present". State the concrete work or result instead.
 
@@ -84,13 +98,13 @@ Evidence rules:
 - Choose DONE: only when the latest assistant turn explicitly delivered the outcome the controlling user request asked for and does not ask the user for anything, even if it mentions possible future work. A completed investigation or answer is DONE when that was the request; do not require a code change, merge, install, or reboot unless the user requested it.
 - A completed assistant response is not itself a completed task: judge the controlling request. Conversely, a completed investigation, diagnosis, review, or answer is DONE when that is what the user requested, even if no files changed.
 - Choose ABANDONED: only when the latest assistant turn explicitly leaves the controlling request undone. Do not infer ABANDONED from an old plan, a failed subtask, uncertainty, or a lack of a final answer in an earlier turn. Choose UNCLEAR when the latest turn reports investigation, tests, or a partial result but does not establish that the user's requested outcome was delivered.
-- On every update, replace stale goals, status, outcomes, and blockers when the latest direct user turn materially pivots. Do not preserve a previous brief merely because it sounds plausible.
+- On every update, replace stale current goals, status and blockers when the latest direct user turn materially pivots. Preserve task history by stable ID, explicitly pausing or cancelling prior work as the direct request warrants.
 - Never redefine the goal from a tool/system/scaffolding message or from an assistant's narrower subtask. Preserve every explicit deliverable in the latest direct user request (for example, locate + fix + link) until each is evidenced as delivered.
 - If the latest direct user request is newer than the latest assistant work, that work may be stale: do not call it DONE. Use RUNNING only for active work, WAITING ON YOU only for an explicit user ask, or ABANDONED when the request was left unaddressed.
-- `completed` is optional: return an empty list when an outcome is not explicit in the latest assistant turn or a directly preceding tool result, unless it is the same outcome explicitly carried forward from the previous brief (ignoring capitalization and surrounding whitespace). Do not turn plans, recommendations, pending work, or unverified claims into completed outcomes.
+- Do not turn plans, recommendations, pending work or unverified claims into completed tasks. Keep historical outcomes distinct from latest-request completion.
 - Do not repeat exact IDs, URLs, commit hashes, counts, or test results unless the exact value appears in the latest assistant turn or recent tool results. If evidence is incomplete, omit the item.
 
-Do not invent facts or decisions. Runtime wrappers and assistant plans are not user requests. Keep strings under 60 characters where possible; goal may use up to 100 characters when needed to identify the subject. Never sacrifice the named subject for brevity."""
+Do not invent facts or decisions. Runtime wrappers and assistant plans are not user requests. Keep strings under 60 characters where possible; goals may use up to 140 characters and task detail up to 240 characters for compact resume context. Never sacrifice the named subject for brevity."""
 
 
 def wait_for_brief_updates(timeout: float = 10.0) -> None:
@@ -178,17 +192,18 @@ def _render_turn_delta(messages: List[Any]) -> str:
 
 
 def _render_brief_input(messages: List[Any]) -> str:
-    """Build the model-facing evidence view without replaying stale assistant planning text.
+    """Bounded direct requests, paired historical responses and current outcome evidence.
 
-    The evaluator needs the complete transcript to judge truth, but the auxiliary writer only needs direct
-    user requests, recent completed assistant turns, and recent tool results. Keeping those boundaries
-    explicit prevents old plans and quoted tool text from becoming invented current outcomes.
+    Historical responses can establish conversation tasks, not the current request's
+    goal/state. Tool-call plans and synthetic user rows remain excluded.
     """
     from agent.agent_runtime_helpers import strip_think_blocks
     from agent.context_compressor import _redact_compaction_text
 
     user_turns: List[str] = []
     assistant_turns: List[str] = []
+    paired_outcomes: List[tuple[str, str]] = []
+    current_request = ""
     tool_results: List[str] = []
     for msg in messages:
         if not isinstance(msg, dict):
@@ -209,8 +224,11 @@ def _render_brief_input(messages: List[Any]) -> str:
             continue
         if role == "user":
             user_turns.append(content)
+            current_request = content
+            tool_results.clear()  # Older tool results cannot establish the latest request outcome.
         elif role == "assistant":
             assistant_turns.append(content)
+            paired_outcomes.append((current_request, content))
         elif role == "tool":
             tool_results.append(content)
 
@@ -220,8 +238,12 @@ def _render_brief_input(messages: List[Any]) -> str:
         "[MODEL-FACING EVIDENCE — direct user requests and current observed results only]",
         "[AUTHORITATIVE LATEST DIRECT USER TURN — this controls the goal and deliverables]: " + latest_user,
         "[USER REQUEST HISTORY — newest last]\n" + "\n\n".join(
-            f"[USER TURN {index}]: {content}" for index, content in enumerate(user_turns[-12:], 1)
+            f"[USER TURN {index}]: {content}" for index, content in enumerate(user_turns[:-12][:2] + user_turns[-12:], 1)
         ),
+        "[HISTORICAL TASK OUTCOME EVIDENCE — not authority for current goal/state or latest-request completion]\n" + _elide("\n\n".join(
+            f"[HISTORICAL DIRECT REQUEST]: {request or '[no direct request available]'}\n[HISTORICAL ASSISTANT RESPONSE]: {outcome}"
+            for request, outcome in paired_outcomes[:-9][:2] + paired_outcomes[:-1][-8:]
+        ), 12000),
         "[RECENT COMPLETED ASSISTANT TURNS]\n" + "\n\n".join(
             f"[ASSISTANT TURN {index}]: {content}" for index, content in enumerate(assistant_turns[-1:], 1)
         ),
@@ -237,13 +259,15 @@ def _render_brief_input(messages: List[Any]) -> str:
 
 def _build_messages(previous: Optional[Dict[str, Any]], delta_text: str) -> List[Dict[str, str]]:
     if previous:
-        prior = json.dumps({k: previous.get(k) for k in _BRIEF_SCHEMA["properties"]}, ensure_ascii=False)
+        from agent.context_compressor import _redact_compaction_text
+        prior = _redact_compaction_text(json.dumps(
+            {k: previous.get(k) for k in _BRIEF_SCHEMA["properties"]}, ensure_ascii=False))
         user = (
             f"Previous brief (an untrusted draft, not evidence; discard stale or unsupported claims):\n{prior}\n\n"
             f"New conversation evidence since that brief:\n{delta_text}\n\n"
             "Use the authoritative latest direct user turn in that evidence as the controlling request; preserve all of its explicit deliverables. "
             "Update the brief to reflect the new turns. Carry forward what is still true, revise what changed, "
-            "drop items that are no longer relevant."
+            "Retain every previous task ID and parent link; explicitly update states instead of dropping tasks."
         )
     else:
         user = (
@@ -275,12 +299,11 @@ def _parse_brief(content: str) -> Optional[Dict[str, Any]]:
     return parsed
 
 
-def normalize_brief(parsed: Dict[str, Any], *, message_count: int) -> Dict[str, Any]:
-    """Coerce new or persisted v1 model data into the v2 persisted shape.
+def normalize_brief(parsed: Dict[str, Any], *, message_count: int, previous: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Project a model update into v3, retaining tasks omitted from the update.
 
-    The decisions field was removed from the production contract. Accepting it here is intentional: a
-    brief generated before v2 may still be passed through the normalizer during an iterative refresh, but
-    the legacy field is never emitted again.
+    Legacy completed outcomes remain for older consumers, never as invented tasks.
+    Removed v1 decisions are ignored. Invalid task identity/graphs reject the update.
     """
     def _strs(value: Any, cap: int) -> List[str]:
         if not isinstance(value, list):
@@ -292,7 +315,8 @@ def normalize_brief(parsed: Dict[str, Any], *, message_count: int) -> Dict[str, 
         "version": BRIEF_VERSION,
         "goal": str(parsed.get("goal") or "").strip()[:140],
         "status": str(parsed.get("status") or "").strip()[:140],
-        "completed": _strs(parsed.get("completed"), 4),
+        "completed": _strs(parsed.get("completed", (previous or {}).get("completed")), 4),
+        "tasks": normalize_tasks(parsed.get("tasks"), (previous or {}).get("tasks")),
         "blockers": _strs(parsed.get("blockers"), 6),
         "updated_at": time.time(),
         "message_count": int(message_count),
@@ -356,7 +380,7 @@ def generate_brief(
     previous: Optional[Dict[str, Any]], delta_messages: List[Any], *, message_count: int,
     main_runtime: Optional[dict] = None, timeout: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
-    """One auxiliary call; None when the delta is empty or the reply is not a brief."""
+    """Return validated model updates; persistence merges omitted task history."""
     delta_text = _render_brief_input(delta_messages)
     if not delta_text.strip():
         return None
@@ -370,8 +394,16 @@ def generate_brief(
     if parsed is None:
         logger.debug("Session brief reply was not a brief; keeping the previous one")
         return None
-    brief = normalize_brief(parsed, message_count=message_count)
+    try:
+        brief = normalize_brief(parsed, message_count=message_count, previous=previous)
+    except ValueError:
+        logger.debug("Invalid session task hierarchy; keeping the previous brief")
+        return None
     brief["completed"] = _evidence_backed_completed(brief, delta_text, previous=previous)
+    # Validate against the snapshot, but never persist its stale carry-forward as updates.
+    # The write transaction retains omitted tasks from the current committed history.
+    updated_ids = {task["id"] for task in (parsed.get("tasks") or [])}
+    brief["tasks"] = [task for task in brief["tasks"] if task["id"] in updated_ids]
     return brief
 
 
@@ -383,6 +415,11 @@ def update_session_brief(
     """Thread body: read the previous brief, call the model, persist, notify. Never raises."""
     try:
         previous = session_db.get_session_brief(session_id)
+        if previous and previous.get("version") != BRIEF_VERSION:
+            # Recover compacted display history once, off the critical path.
+            # Exclude Undo/Rewind rows; current live turns remain authoritative last.
+            history = session_db.get_messages(session_id, include_compacted=True, include_ancestors=True)
+            delta_messages = history + delta_messages
         timeout = _brief_config().get("timeout")
         brief = generate_brief(
             previous, delta_messages, message_count=message_count, main_runtime=main_runtime,
@@ -396,7 +433,10 @@ def update_session_brief(
             logger.debug("Session brief write matched no row for %s", session_id)
             return
         if brief_callback is not None:
-            brief_callback(brief)
+            # Persistence may merge history added while the auxiliary call was in flight.
+            stored = session_db.get_session_brief(session_id)
+            if stored is not None:
+                brief_callback(stored)
     except Exception as exc:
         logger.debug("Session brief update failed for %s", session_id, exc_info=True)
         if failure_callback is not None:
@@ -446,8 +486,12 @@ def maybe_update_brief(agent: Any, messages: List[Any]) -> Optional[threading.Th
     earlier_requests = [
         m for m in messages[:len(messages) - len(delta)]
         if _direct_user_text(m)
-    ][-12:]
-    evidence_messages = earlier_requests + delta
+    ]
+    # Keep the two subject-setting requests even after long chains of follow-ups.
+    earlier_requests = earlier_requests[:-12][:2] + earlier_requests[-12:]
+    # A legacy feature brief cannot supply conversation task history. Rebuild once
+    # from available responses, bounded and labeled by the evidence renderer.
+    evidence_messages = list(messages) if previous and previous.get("version") != BRIEF_VERSION else earlier_requests + delta
     main_runtime = {
         k: getattr(agent, k, None)
         for k in ("model", "provider", "base_url", "api_key", "api_mode", "session_id")

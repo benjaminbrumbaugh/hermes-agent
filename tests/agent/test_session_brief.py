@@ -16,8 +16,12 @@ class _FakeDB:
     def get_session_brief(self, session_id):
         return self.previous
 
+    def get_messages(self, session_id, **kwargs):
+        return []
+
     def set_session_brief(self, session_id, brief):
         self.written.append((session_id, brief))
+        self.previous = brief
         return True
 
 
@@ -68,7 +72,7 @@ def test_non_brief_reply_is_rejected():
     assert session_brief._parse_brief('{"title": "x"}') is None
 
 
-def test_normalize_brief_migrates_v1_rows_to_the_compact_v2_shape():
+def test_normalize_brief_migrates_v1_rows_without_manufacturing_v3_tasks():
     brief = session_brief.normalize_brief({
         "version": 1,
         "goal": "g" * 200,
@@ -77,7 +81,9 @@ def test_normalize_brief_migrates_v1_rows_to_the_compact_v2_shape():
         "blockers": ["needs key"],
         "decisions": ["legacy decision"],
     }, message_count=7)
-    assert brief["version"] == 2
+    # V3 extends the persisted contract; legacy feature outcomes are not tasks.
+    assert brief["version"] == session_brief.BRIEF_VERSION
+    assert brief["tasks"] == []
     assert len(brief["goal"]) == 140
     assert len(brief["status"]) == 140
     assert len(brief["completed"]) == 4
@@ -163,7 +169,26 @@ def test_genuine_steer_pivot_is_the_latest_direct_request():
     assert "ignore this" not in evidence
 
 
-def test_refresh_keeps_direct_user_context_without_old_results(monkeypatch):
+def test_long_followup_history_keeps_the_original_named_subject(monkeypatch):
+    """Older subject-setting requests must survive the bounded follow-up window."""
+    monkeypatch.setattr(session_brief, "brief_enabled", lambda: True)
+    topic = "Investigate bidirectional communication between the Gas City Mayor and Hermes."
+    messages = [{"role": "user", "content": topic}, {"role": "assistant", "content": "Investigation delivered."}]
+    messages += _messages(20)
+    messages += [{"role": "user", "content": "Check in"}, {"role": "assistant", "content": "Mayor reply pending."}]
+    previous = dict(version=session_brief.BRIEF_VERSION, goal="Check in", tasks=[], message_count=len(messages) - 2)
+    captured = []
+    monkeypatch.setattr(session_brief, "update_session_brief", lambda _db, _id, evidence, **_kw: captured.append(evidence))
+    thread = session_brief.maybe_update_brief(_agent(_FakeDB(previous)), messages)
+    assert thread is not None
+    thread.join(10)
+    evidence = session_brief._render_brief_input(captured[0])
+    assert topic in evidence
+    assert "[LATEST DIRECT USER TURN]: Check in" in evidence
+    assert evidence.count("[USER TURN ") <= 14
+
+
+def test_legacy_refresh_keeps_historical_outcomes_separate_from_current_evidence(monkeypatch):
     """Observe the real auxiliary-call input, not a canned model's topic choice."""
     monkeypatch.setattr(session_brief, "brief_enabled", lambda: True)
     monkeypatch.setattr(session_brief, "_brief_config", lambda: {})
@@ -188,7 +213,10 @@ def test_refresh_keeps_direct_user_context_without_old_results(monkeypatch):
     evidence = captured[0][1]["content"]
     assert topic in evidence
     assert "[LATEST DIRECT USER TURN]: Check in on them" in evidence
-    assert "OLD RESULT" not in evidence and "OLD TOOL" not in evidence
+    # V3 rebuilds legacy task history from bounded paired responses, never old tools.
+    assert "[HISTORICAL ASSISTANT RESPONSE]: OLD RESULT" in evidence
+    assert "[LATEST ASSISTANT TURN]: SDK callbacks active; Mayor follow-up pending." in evidence
+    assert "OLD TOOL" not in evidence
     assert "FAKE GOAL" not in evidence
     assert db.written[0][1]["message_count"] == len(messages)
 

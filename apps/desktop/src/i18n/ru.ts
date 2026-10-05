@@ -3758,6 +3758,19 @@ export const ru = defineLocale({
     }
   },
   rightSidebar: {
+    brief: {
+      goal: 'Текущая цель',
+      tasks: 'Задачи',
+      taskStates: {
+        pending: 'Ожидает начала',
+        in_progress: 'В работе',
+        waiting: 'Ожидание',
+        paused: 'Приостановлено',
+        timed_wait: 'Ожидание до срока',
+        completed: 'Завершено',
+        cancelled: 'Отменено'
+      }
+    },
     aria: 'Правая боковая панель',
     panelsAria: 'Панели правой боковой панели',
     files: 'Файловая система',

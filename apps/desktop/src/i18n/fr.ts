@@ -5219,7 +5219,16 @@ export const frOverrides = {
     terminal: 'Terminal',
     brief: {
       aria: 'Résumé de session',
-      goal: 'Objectif',
+      goal: 'Objectif actuel',
+      taskStates: {
+        pending: 'En attente',
+        in_progress: 'En cours',
+        waiting: 'En attente de réponse',
+        paused: 'En pause',
+        timed_wait: 'Attente programmée',
+        completed: 'Terminée',
+        cancelled: 'Annulée'
+      },
       status: 'Statut',
       tasks: 'Tâches',
       completed: 'Fait jusqu’ici',

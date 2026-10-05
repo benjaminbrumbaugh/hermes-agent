@@ -1,3 +1,4 @@
+import type { SessionBriefTask } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { computed } from 'nanostores'
 import type { ReactNode } from 'react'
@@ -52,8 +53,7 @@ export function BriefPane() {
   }
 
   const openTodos = todos.filter(todo => todo.status !== 'cancelled')
-  const waiting = brief.blockers.length > 0 || brief.status.startsWith('WAITING ON YOU:')
-  const leadTone = waiting ? 'text-(--ui-orange)' : 'text-(--theme-primary)'
+  const legacy = !brief.tasks || (brief.version < 3 && brief.tasks.length === 0)
 
   return (
     <aside aria-label={b.aria} className="flex h-full w-full min-w-0 flex-col overflow-hidden">
@@ -65,20 +65,10 @@ export function BriefPane() {
       </RightSidebarSectionHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 text-xs text-(--ui-text-secondary)">
-        <div className="relative py-4 pl-5">
-          <span aria-hidden="true" className={cn('absolute bottom-0 left-1 top-0 w-0.5 rounded-full bg-(--ui-stroke-tertiary)', leadTone)} />
-          <span
-            aria-hidden="true"
-            className={cn(
-              'absolute left-0 top-4 flex size-2.5 rounded-full border-2 border-(--ui-widget-surface-background) bg-(--theme-primary)',
-              waiting && 'bg-(--ui-orange)'
-            )}
-          />
-          <p className={cn('text-[0.6875rem] font-semibold tracking-wide uppercase', leadTone)}>{b.status}</p>
-          <p className="mt-1 font-medium leading-snug text-(--ui-text-primary)">{brief.status}</p>
-          <p className="mt-3 text-[0.6875rem] font-semibold tracking-wide uppercase text-(--ui-text-quaternary)">{b.goal}</p>
-          <p className="mt-1 leading-snug text-(--ui-text-primary)">{brief.goal}</p>
-        </div>
+        <PulseSection title={b.goal}>
+          <p className="text-[14px] font-[560] leading-[1.45] text-pretty text-(--ui-text-primary)">{brief.goal}</p>
+          <p className="mt-3.5 text-[13px] leading-normal text-(--ui-text-secondary)">{brief.status}</p>
+        </PulseSection>
 
         {brief.blockers.length > 0 && (
           <PulseSection accent title={b.blockers}>
@@ -86,13 +76,19 @@ export function BriefPane() {
           </PulseSection>
         )}
 
-        {openTodos.length > 0 && (
+        {!legacy && (brief.tasks?.length ?? 0) > 0 && (
+          <PulseSection title={b.tasks}>
+            <TaskList tasks={brief.tasks ?? []} />
+          </PulseSection>
+        )}
+
+        {legacy && openTodos.length > 0 && (
           <PulseSection title={b.tasks}>
             <TodoList todos={openTodos} />
           </PulseSection>
         )}
 
-        {brief.completed.length > 0 && (
+        {legacy && brief.completed.length > 0 && (
           <PulseSection title={b.completed}>
             <ItemList icon="pass-filled" items={brief.completed} />
           </PulseSection>
@@ -104,8 +100,13 @@ export function BriefPane() {
 
 function PulseSection({ accent, children, title }: { accent?: boolean; children: ReactNode; title: string }) {
   return (
-    <section className="border-t border-(--ui-stroke-tertiary) py-3">
-      <h3 className={cn('mb-1 text-[0.6875rem] font-semibold tracking-wide uppercase', accent ? 'text-(--ui-orange)' : 'text-(--ui-text-quaternary)')}>
+    <section className="mt-4 rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-widget-surface-background) p-4">
+      <h3
+        className={cn(
+          'mb-2 text-[0.6875rem] font-semibold tracking-wide uppercase',
+          accent ? 'text-(--ui-orange)' : 'text-(--ui-text-quaternary)'
+        )}
+      >
         {title}
       </h3>
       {children}
@@ -126,13 +127,134 @@ function ItemList({ icon, items }: { icon: string; items: readonly string[] }) {
   )
 }
 
+/** Preserve backend sibling order; parents precede children, including when a child arrives first.
+ * Dangling and cyclic relationships remain visible instead of hiding unresolved work. */
+function taskTree(tasks: SessionBriefTask[]): [SessionBriefTask, number][] {
+  const ids = new Set(tasks.map(task => task.id))
+  const children = new Map<string, SessionBriefTask[]>()
+  const roots: SessionBriefTask[] = []
+
+  for (const task of tasks) {
+    if (task.parent_id && ids.has(task.parent_id) && task.parent_id !== task.id) {
+      const siblings = children.get(task.parent_id) ?? []
+      siblings.push(task)
+      children.set(task.parent_id, siblings)
+    } else {
+      roots.push(task)
+    }
+  }
+
+  const rows: [SessionBriefTask, number][] = []
+  const seen = new Set<string>()
+
+  const visit = (task: SessionBriefTask, depth: number) => {
+    if (seen.has(task.id)) {
+      return
+    }
+
+    seen.add(task.id)
+    rows.push([task, depth])
+
+    for (const child of children.get(task.id) ?? []) {
+      visit(child, depth + 1)
+    }
+  }
+
+  for (const root of roots) {
+    visit(root, 0)
+  }
+
+  for (const task of tasks) {
+    if (!seen.has(task.id)) {
+      seen.add(task.id)
+      rows.push([task, 0])
+    }
+  }
+
+  return rows
+}
+
+function TaskList({ tasks }: { tasks: SessionBriefTask[] }) {
+  const { t } = useI18n()
+
+  return (
+    <ol className="list-none">
+      {taskTree(tasks).map(([task, depth]) => (
+        <li
+          className="py-3.5 first:pt-1.5 last:pb-0 not-first:border-t not-first:border-(--ui-stroke-tertiary)"
+          key={task.id}
+          style={{ marginLeft: `${depth * 24}px` }}
+        >
+          <div className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-[9px]">
+            <TaskIcon status={task.status} />
+            <div>
+              <p className="text-[14px] font-medium leading-[1.45] text-pretty text-(--ui-text-primary)">{task.goal}</p>
+              <p className="mt-1.5 text-xs leading-normal text-(--ui-text-secondary)">
+                <span className={cn(task.status === 'completed' && 'sr-only')}>
+                  {t.rightSidebar.brief.taskStates[task.status]}
+                  {task.status === 'completed' ? '. ' : task.detail ? ' · ' : ''}
+                </span>
+                {task.detail}
+              </p>
+            </div>
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function TaskIcon({ status }: { status: SessionBriefTask['status'] }) {
+  return (
+    <svg aria-hidden="true" className="mt-[3px] size-[15px] text-(--ui-text-secondary)" viewBox="0 0 16 16">
+      {status === 'completed' ? (
+        <>
+          <circle cx="8" cy="8" fill="currentColor" r="8" />
+          <path
+            d="m4.2 8.1 2.4 2.5 5.2-5.2"
+            fill="none"
+            stroke="var(--ui-widget-surface-background)"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.5"
+          />
+        </>
+      ) : status === 'in_progress' ? (
+        <path
+          d="M8 1.3a6.7 6.7 0 1 1-6.7 6.7"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeWidth="1.7"
+        />
+      ) : (
+        <>
+          <circle cx="8" cy="8" fill="none" r="6.7" stroke="currentColor" strokeWidth="1.4" />
+          {status === 'timed_wait' && (
+            <path d="M8 4v4l2.5 1.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+          )}
+          {status === 'cancelled' && (
+            <path d="M3.3 12.7 12.7 3.3" fill="none" stroke="currentColor" strokeWidth="1.4" />
+          )}
+        </>
+      )}
+    </svg>
+  )
+}
+
 function TodoList({ todos }: { todos: TodoItem[] }) {
   return (
     <ul className="flex flex-col gap-1">
       {todoTree(todos).map(([todo, depth]) => (
-        <li className="flex items-start gap-1.5 leading-snug" key={todo.id} style={{ paddingLeft: `${depth * 0.75}rem` }}>
+        <li
+          className="flex items-start gap-1.5 leading-snug"
+          key={todo.id}
+          style={{ paddingLeft: `${depth * 0.75}rem` }}
+        >
           <Codicon className="mt-0.5 shrink-0" name={TODO_ICON[todo.status]} size="0.75rem" />
-          <span className={cn(todo.status === 'completed' && 'text-(--ui-text-quaternary) line-through')}>{todo.content}</span>
+          <span className={cn(todo.status === 'completed' && 'text-(--ui-text-quaternary) line-through')}>
+            {todo.content}
+          </span>
         </li>
       ))}
     </ul>

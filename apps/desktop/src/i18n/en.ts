@@ -4818,7 +4818,16 @@ export const en: Translations = {
     terminal: 'Terminal',
     brief: {
       aria: 'Session brief',
-      goal: 'Goal',
+      goal: 'Current goal',
+      taskStates: {
+        pending: 'Pending',
+        in_progress: 'In progress',
+        waiting: 'Waiting',
+        paused: 'Paused',
+        timed_wait: 'Timed wait',
+        completed: 'Completed',
+        cancelled: 'Cancelled'
+      },
       status: 'Status',
       tasks: 'Tasks',
       completed: 'Done so far',

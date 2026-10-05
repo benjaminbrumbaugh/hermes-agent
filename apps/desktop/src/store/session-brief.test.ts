@@ -56,4 +56,29 @@ describe('session brief store', () => {
     applySessionBrief('s', missingStatus)
     expect($briefsBySession.get()).toEqual({})
   })
+
+  it('keeps valid durable tasks and rejects malformed updates without replacing the cache', () => {
+    const task = {
+      id: 'parent',
+      parent_id: null,
+      goal: 'Finish the bridge',
+      status: 'paused',
+      detail: 'Review outstanding'
+    }
+
+    applySessionBrief('s', { ...brief('g', 10), version: 3, tasks: [task] })
+    expect($briefsBySession.get().s?.tasks).toEqual([task])
+
+    for (const tasks of [
+      null,
+      {},
+      [{ ...task, status: 'done' }],
+      [{ ...task, parent_id: 1 }],
+      [{ ...task, detail: null }],
+      [task, task]
+    ]) {
+      applySessionBrief('s', { ...brief('bad', 20), version: 3, tasks })
+      expect($briefsBySession.get().s?.goal).toBe('g')
+    }
+  })
 })

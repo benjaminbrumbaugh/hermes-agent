@@ -5196,7 +5196,16 @@ export const esOverrides = {
     terminal: 'Terminal',
     brief: {
       aria: 'Resumen de sesión',
-      goal: 'Objetivo',
+      goal: 'Objetivo actual',
+      taskStates: {
+        pending: 'Pendiente',
+        in_progress: 'En curso',
+        waiting: 'En espera',
+        paused: 'En pausa',
+        timed_wait: 'Espera programada',
+        completed: 'Completada',
+        cancelled: 'Cancelada'
+      },
       status: 'Estado',
       tasks: 'Tareas',
       completed: 'Hecho hasta ahora',

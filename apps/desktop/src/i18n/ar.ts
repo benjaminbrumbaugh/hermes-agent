@@ -3029,6 +3029,19 @@ export const ar = defineLocale({
     }
   },
   rightSidebar: {
+    brief: {
+      goal: 'الهدف الحالي',
+      tasks: 'المهام',
+      taskStates: {
+        pending: 'قيد الانتظار',
+        in_progress: 'قيد التنفيذ',
+        waiting: 'بانتظار رد',
+        paused: 'متوقف مؤقتًا',
+        timed_wait: 'انتظار محدد الوقت',
+        completed: 'مكتمل',
+        cancelled: 'ملغى'
+      }
+    },
     aria: 'الشريط الجانبي الأيمن',
     panelsAria: 'لوحات الشريط الأيمن',
     files: 'الملفات',
