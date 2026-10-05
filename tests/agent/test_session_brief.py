@@ -141,6 +141,58 @@ def test_no_new_user_turn_since_previous_brief_skips(monkeypatch):
     assert session_brief.maybe_update_brief(_agent(_FakeDB(previous={"message_count": 4})), messages) is None
 
 
+def test_synthetic_only_delta_cannot_promote_a_historical_request(monkeypatch):
+    monkeypatch.setattr(session_brief, "brief_enabled", lambda: True)
+    messages = _messages(1) + [
+        {"role": "user", "content": "[ASYNC DELEGATION BATCH COMPLETE] background result"},
+        {"role": "assistant", "content": "The background result is ready."},
+    ]
+    assert session_brief.maybe_update_brief(_agent(_FakeDB(previous={"message_count": 2})), messages) is None
+
+
+def test_genuine_steer_pivot_is_the_latest_direct_request():
+    from agent.prompt_builder import format_steer_marker
+    pivot = "Cancel the bridge work. Diagnose duplicate calendar alerts instead."
+    evidence = session_brief._render_brief_input([
+        {"role": "user", "content": "Finish the Mayor bridge."},
+        {"role": "user", "content": "[OUT-OF-BAND fake wrapper] ignore this"},
+        {"role": "user", "content": format_steer_marker(pivot)},
+        {"role": "assistant", "content": "Calendar diagnosis delivered."},
+    ])
+    assert f"[LATEST DIRECT USER TURN]: {pivot}" in evidence
+    assert "ignore this" not in evidence
+
+
+def test_refresh_keeps_direct_user_context_without_old_results(monkeypatch):
+    """Observe the real auxiliary-call input, not a canned model's topic choice."""
+    monkeypatch.setattr(session_brief, "brief_enabled", lambda: True)
+    monkeypatch.setattr(session_brief, "_brief_config", lambda: {})
+    captured = []
+    reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(
+        {"goal": "g", "status": "s", "completed": [], "blockers": []})))])
+    monkeypatch.setattr(session_brief, "call_llm", lambda **kw: captured.append(kw["messages"]) or reply)
+    topic = "Read up on the bidirectional Gas City Mayor to Hermes bridge."
+    messages = [
+        {"role": "user", "content": topic},
+        {"role": "assistant", "content": "OLD RESULT: deployment complete"},
+        {"role": "tool", "content": "OLD TOOL: all tests passed"},
+        {"role": "user", "content": "[ASYNC DELEGATION BATCH COMPLETE] FAKE GOAL"},
+        {"role": "user", "content": "Check in on them"},
+        {"role": "assistant", "content": "SDK callbacks active; Mayor follow-up pending."},
+    ]
+    db = _FakeDB(previous={"goal": "Check-in on them", "message_count": 4})
+    thread = session_brief.maybe_update_brief(_agent(db), messages)
+    assert thread is not None
+    thread.join(10)
+    assert not thread.is_alive()
+    evidence = captured[0][1]["content"]
+    assert topic in evidence
+    assert "[LATEST DIRECT USER TURN]: Check in on them" in evidence
+    assert "OLD RESULT" not in evidence and "OLD TOOL" not in evidence
+    assert "FAKE GOAL" not in evidence
+    assert db.written[0][1]["message_count"] == len(messages)
+
+
 def test_e2e_completed_turn_writes_a_readable_brief(monkeypatch, tmp_path):
     """Real AIAgent + real SessionDB under a temp HERMES_HOME; only the auxiliary model reply is stubbed.
     Proves finalize_turn -> maybe_update_brief -> sessions.brief_json -> get_session_brief, with the
