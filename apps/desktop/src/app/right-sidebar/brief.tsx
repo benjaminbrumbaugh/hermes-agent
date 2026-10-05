@@ -7,21 +7,22 @@ import { useI18n } from '@/i18n'
 import { relativeTime } from '@/lib/time'
 import { type TodoItem, todoTree } from '@/lib/todos'
 import { cn } from '@/lib/utils'
-import { $activeSessionId, $selectedStoredSessionId } from '@/store/session'
 import { $briefsBySession } from '@/store/session-brief'
+import { $focusedRuntimeId, $focusedStoredSessionId } from '@/store/session-states'
 import { $todosBySession } from '@/store/todos'
 
 import { SidebarPanelLabel } from '../shell/sidebar-label'
 
 import { RightSidebarSectionHeader } from './index'
 
-/** The brief for the session the user is looking at (stored id; lineage aliases already fanned out). */
-const $activeBrief = computed([$briefsBySession, $selectedStoredSessionId], (briefs, storedId) =>
+/** The brief for the session the user is LOOKING AT — a tile tab or the primary selection — never
+ *  only the primary: with conversations open as tabs the primary never changes on a tab switch. */
+const $activeBrief = computed([$briefsBySession, $focusedStoredSessionId], (briefs, storedId) =>
   storedId ? (briefs[storedId] ?? null) : null
 )
 
-/** Live task list for the active runtime session — the same feed the composer status stack renders. */
-const $activeTodos = computed([$todosBySession, $activeSessionId], (todos, runtimeId): TodoItem[] =>
+/** Live task list for the focused runtime session — the same feed the composer status stack renders. */
+const $activeTodos = computed([$todosBySession, $focusedRuntimeId], (todos, runtimeId): TodoItem[] =>
   runtimeId ? (todos[runtimeId] ?? []) : []
 )
 

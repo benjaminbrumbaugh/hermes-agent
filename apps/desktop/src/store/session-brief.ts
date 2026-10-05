@@ -4,7 +4,8 @@ import { atom } from 'nanostores'
 import { stableRecord } from '@/lib/stable-array'
 
 import { activeGateway } from './gateway'
-import { $selectedStoredSessionId, $sessions, lineageAliases } from './session'
+import { $sessions, lineageAliases } from './session'
+import { $focusedStoredSessionId } from './session-states'
 
 /**
  * Backend-authoritative session brief (goal / status / completed / blockers),
@@ -108,13 +109,15 @@ export async function refreshSessionBrief(sessionId: string, storedSessionId: st
   }
 }
 
-// The sidebar keys by the SELECTED stored id; the resume paths only refresh
-// once a live runtime is bound, which a conversation opened from the list and
-// never resumed never reaches — the pane kept showing the previous session's
-// brief. Selection itself is the event to read on.
-$selectedStoredSessionId.listen(selected => {
-  if (selected && !$briefsBySession.get()[selected]) {
-    void refreshSessionBrief(selected)
+// The pane keys by the session the user is LOOKING AT (a tile tab or the
+// primary selection). The resume paths only refresh once a live runtime is
+// bound, which a conversation opened from the list and never resumed never
+// reaches; and a tab switch never changes the primary selection at all — so
+// the pane kept showing the previous session's brief. Focus is the event to
+// read on.
+$focusedStoredSessionId.listen(focused => {
+  if (focused && !$briefsBySession.get()[focused]) {
+    void refreshSessionBrief(focused)
   }
 })
 
