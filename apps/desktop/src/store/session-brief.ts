@@ -4,7 +4,7 @@ import { atom } from 'nanostores'
 import { stableRecord } from '@/lib/stable-array'
 
 import { activeGateway } from './gateway'
-import { $sessions, lineageAliases } from './session'
+import { $selectedStoredSessionId, $sessions, lineageAliases } from './session'
 
 /**
  * Backend-authoritative session brief (goal / status / completed / blockers),
@@ -83,20 +83,21 @@ export function applySessionBrief(storedSessionId: string, brief: unknown): void
 }
 
 /**
- * Pull the stored brief for a live runtime session. A failed read keeps the
- * cached answer (an older backend without the method is not evidence the
- * brief went away); a null result clears it (a fresh draft).
+ * Pull the stored brief for a session. `session.brief` resolves a live runtime id or a stored
+ * id/key, so the sidebar can ask by whichever it holds. A failed read keeps the cached answer
+ * (an older backend without the method is not evidence the brief went away); a null result
+ * clears nothing (a fresh draft simply has no brief yet).
  */
-export async function refreshSessionBrief(runtimeSessionId: string, storedSessionId: string): Promise<void> {
+export async function refreshSessionBrief(sessionId: string, storedSessionId: string = sessionId): Promise<void> {
   const gateway = activeGateway()
 
-  if (!gateway || !runtimeSessionId || !storedSessionId) {
+  if (!gateway || !sessionId || !storedSessionId) {
     return
   }
 
   try {
     const result = await gateway.request<{ brief?: SessionBrief | null }>('session.brief', {
-      session_id: runtimeSessionId
+      session_id: sessionId
     })
 
     if (result?.brief) {
@@ -106,6 +107,16 @@ export async function refreshSessionBrief(runtimeSessionId: string, storedSessio
     // keep whatever we already know
   }
 }
+
+// The sidebar keys by the SELECTED stored id; the resume paths only refresh
+// once a live runtime is bound, which a conversation opened from the list and
+// never resumed never reaches — the pane kept showing the previous session's
+// brief. Selection itself is the event to read on.
+$selectedStoredSessionId.listen(selected => {
+  if (selected && !$briefsBySession.get()[selected]) {
+    void refreshSessionBrief(selected)
+  }
+})
 
 export function clearAllSessionBriefs(): void {
   $briefsBySession.set({})

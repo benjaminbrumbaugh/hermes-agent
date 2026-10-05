@@ -1169,13 +1169,21 @@ def _(rid, params: dict, session: dict, db) -> dict:
 
 
 @method("session.brief")
-@_with_db(5007, session_scoped=True)
-def _(rid, params: dict, session: dict, db) -> dict:
-    key = session["session_key"]
-    try:
-        brief = db.get_session_brief(key) if key else None
-    except Exception as e:
-        return _err(rid, 5007, str(e))
+def _(rid, params: dict) -> dict:
+    """Newest brief on the lineage of ``session_id``: a LIVE runtime id first, else a stored id/key in the
+    profile db — the sidebar keys by stored id and most conversations the user clicks are not live."""
+    target = str(params.get("session_id") or params.get("session_key") or "")
+    if not target:
+        return _err(rid, 4006, "session_id required")
+    session = _sessions.get(target)
+    key = session["session_key"] if session is not None else target
+    with (_session_db(session) if session is not None else _profile_db(params)) as db:
+        if db is None:
+            return _db_unavailable_error(rid, code=5007)
+        try:
+            brief = db.get_session_brief(key) if key else None
+        except Exception as e:
+            return _err(rid, 5007, str(e))
     return _ok(rid, {"brief": brief})
 
 
