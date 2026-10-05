@@ -3198,9 +3198,18 @@ export interface SessionBrief {
   goal: string
   status: string
   completed: string[]
+  tasks?: SessionBriefTask[]
   blockers: string[]
   updated_at: number
   message_count: number
+}
+/** A durable conversation task, not an executable todo or scheduled job. */
+export interface SessionBriefTask {
+  id: string
+  parent_id: string | null
+  goal: string
+  status: 'pending' | 'in_progress' | 'waiting' | 'paused' | 'timed_wait' | 'completed' | 'cancelled'
+  detail: string
 }
 /** ``session_id`` is a live runtime id first, else a stored id / key / title. */
 export interface SessionSetHiddenParams {

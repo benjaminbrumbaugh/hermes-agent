@@ -28981,6 +28981,13 @@
             "title": "Completed",
             "type": "array"
           },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/SessionBriefTask"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
           "blockers": {
             "items": {
               "type": "string"
@@ -29070,6 +29077,57 @@
           }
         },
         "title": "SessionBriefResult",
+        "type": "object"
+      },
+      "SessionBriefTask": {
+        "additionalProperties": false,
+        "description": "A durable conversation task, not an executable todo or scheduled job.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "in_progress",
+              "waiting",
+              "paused",
+              "timed_wait",
+              "completed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parent_id",
+          "goal",
+          "status",
+          "detail"
+        ],
+        "title": "SessionBriefTask",
         "type": "object"
       },
       "SessionCloseParams": {

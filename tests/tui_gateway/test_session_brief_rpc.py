@@ -54,3 +54,19 @@ def test_brief_is_null_for_a_stored_session_without_one(db):
 
 def test_brief_requires_a_session_id(db):
     assert _call("session.brief", {})["error"]["code"] == 4006
+
+
+def test_task_hierarchy_crosses_result_and_event_contracts():
+    """Neither reconnect snapshots nor refresh events may strip resumable parent context."""
+    from tui_gateway.contracts.events import SessionBriefPayload
+    from tui_gateway.contracts.sessions import SessionBriefResult
+
+    parent = {"id": "bridge", "parent_id": None, "goal": "Investigating the Mayor ↔ Hermes bridge",
+              "status": "paused", "detail": "Return after fixing the brief"}
+    child = {"id": "brief", "parent_id": "bridge", "goal": "Fixing conversation summaries",
+             "status": "in_progress", "detail": "Task model implementation underway"}
+    brief = {**_brief("Fixing conversation summaries"), "version": 3, "tasks": [parent, child]}
+    brief.pop("decisions")
+    snapshot = SessionBriefResult.model_validate({"brief": brief}).model_dump()
+    update = SessionBriefPayload.model_validate({"session_id": "chat", "brief": brief}).model_dump()
+    assert snapshot["brief"]["tasks"] == update["brief"]["tasks"] == [parent, child]
