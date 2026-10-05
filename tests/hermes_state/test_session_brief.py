@@ -58,3 +58,21 @@ def test_refresh_order_accepts_compaction_and_rejects_stale_write(db):
 
 def test_set_brief_on_missing_row_reports_false(db):
     assert db.set_session_brief("ghost", _brief("x", 1)) is False
+
+
+def test_persistence_merges_explicit_task_updates_without_losing_inherited_work(db):
+    db.create_session("root", "tui")
+    parent = dict(id="repair", parent_id=None, goal="Repair sync", status="paused", detail="Resume after review")
+    child = dict(id="review", parent_id="repair", goal="Review sync logs", status="completed", detail="Review delivered")
+    prior = dict(_brief("Review sync logs", 8), version=3, tasks=[parent, child])
+    assert db.set_session_brief("root", prior)
+    _compress(db, "root", "tip")
+    update = dict(_brief("Resume sync repair", 2), version=3, updated_at=2,
+        tasks=[dict(parent, status="in_progress")])
+    assert db.set_session_brief("tip", update)
+    assert db.get_session_brief("tip")["tasks"] == [dict(parent, status="in_progress"), child]
+    assert db.get_session_brief("root")["tasks"] == [parent, child]
+    assert db.set_session_brief("tip", dict(update, updated_at=3, tasks=[]))
+    assert db.get_session_brief("tip")["tasks"] == [dict(parent, status="in_progress"), child]
+    assert db.set_session_brief("tip", dict(update, updated_at=4, tasks=[dict(child, parent_id=None)])) is False
+    assert db.get_session_brief("tip")["tasks"] == [dict(parent, status="in_progress"), child]

@@ -4070,6 +4070,10 @@ export interface Translations {
       aria: string
       goal: string
       status: string
+      taskStates: Record<
+        'pending' | 'in_progress' | 'waiting' | 'paused' | 'timed_wait' | 'completed' | 'cancelled',
+        string
+      >
       tasks: string
       completed: string
       blockers: string

@@ -44,6 +44,29 @@ def test_baseline_variant_is_the_shipped_prompt(runner):
     assert spec.normalize is session_brief.normalize_brief
 
 
+def test_baseline_replay_retains_omitted_tasks_and_grades_the_visible_hierarchy(runner, monkeypatch):
+    """Evaluation must observe the same longitudinal document and ordering as the sidebar."""
+    parent = dict(id="repair", parent_id=None, goal="Repair calendar sync", status="paused", detail="Resume after diagnosis")
+    previous = dict(version=3, goal="Repair calendar sync", status="RUNNING: Repair underway",
+                    completed=["Legacy milestone"], tasks=[parent], blockers=[], updated_at=1, message_count=2)
+    child = dict(id="diagnose", parent_id="repair", goal="Diagnose duplicate alerts", status="completed", detail="Cause explained")
+    monkeypatch.setattr(runner, "chat", lambda *_a, **_kw: dict(
+        content=json.dumps(dict(goal=child["goal"], status="DONE: Cause explained", tasks=[child], blockers=[])),
+        usage={}, latency_s=0))
+    messages = [dict(role="user", content="First diagnose duplicate alerts"),
+                dict(role="assistant", content="Cause explained, calendar sync repair paused")]
+    brief = runner._generate_one(previous, messages, spec=runner.load_variant_spec("baseline"), model="test", message_count=4)
+    assert brief["tasks"] == [parent, child]
+    captured = []
+    monkeypatch.setattr(runner, "chat", lambda msgs, **_kw: captured.append(msgs) or dict(content="{}", usage={}))
+    runner.grade_snapshot(dict(fixture_id="fixture", messages=messages), dict(variant="baseline"),
+                          dict(brief=brief, message_count=4), "rubric", "test", 10000)
+    shown = json.loads(captured[0][1]["content"].split("sections in this order):\n", 1)[1])
+    assert list(shown)[:2] == ["goal", "status"]
+    assert shown["tasks"] == [parent, child]
+    assert "completed" not in shown
+
+
 def test_lane_b_variants_have_distinct_descriptors_and_expected_schema_deltas(runner):
     names = {
         "state_first", "delta_first", "blocker_dominant", "minimalist",

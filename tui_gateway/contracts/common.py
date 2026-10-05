@@ -16,6 +16,16 @@ class OpenModel(Result):
     model_config = Result.model_config | {"extra": "allow"}
 
 
+class SessionBriefTask(Result):
+    """A durable conversation task, not an executable todo or scheduled job."""
+
+    id: str
+    parent_id: str | None
+    goal: str
+    status: Literal["pending", "in_progress", "waiting", "paused", "timed_wait", "completed", "cancelled"]
+    detail: str
+
+
 class SessionBrief(Result):
     """``agent.session_brief.normalize_brief``: the persisted, human-facing running status brief."""
 
@@ -23,6 +33,7 @@ class SessionBrief(Result):
     goal: str
     status: str
     completed: list[str]
+    tasks: list[SessionBriefTask] = Field(default_factory=list)
     blockers: list[str]
     updated_at: float
     message_count: int

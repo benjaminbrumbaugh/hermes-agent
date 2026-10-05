@@ -3706,6 +3706,19 @@ export const zhHant = defineLocale({
   },
 
   rightSidebar: {
+    brief: {
+      goal: '目前目標',
+      tasks: '任務',
+      taskStates: {
+        pending: '待處理',
+        in_progress: '進行中',
+        waiting: '等待中',
+        paused: '已暫停',
+        timed_wait: '定時等待',
+        completed: '已完成',
+        cancelled: '已取消'
+      }
+    },
     aria: '右側邊欄',
     panelsAria: '右側邊欄面板',
     files: '檔案系統',

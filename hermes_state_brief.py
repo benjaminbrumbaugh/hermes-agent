@@ -11,11 +11,13 @@ import logging
 import math
 from typing import Any, Dict, Optional
 
+from agent.session_brief_tasks import normalize_tasks
+
 logger = logging.getLogger("hermes_state")
 
 
 def _wire_brief(parsed: Dict[str, Any]) -> Dict[str, Any]:
-    """Project a persisted v1/v2 row onto the current four-field wire contract.
+    """Project a persisted row onto the current wire contract, with empty legacy tasks.
 
     Reads can encounter rows written before the v2 contract removed ``decisions``. Keeping the migration
     at the persistence boundary means every gateway method and event receives a strict, current shape while
@@ -39,6 +41,7 @@ def _wire_brief(parsed: Dict[str, Any]) -> Dict[str, Any]:
         "goal": str(parsed.get("goal") or "").strip()[:140],
         "status": str(parsed.get("status") or "").strip()[:140],
         "completed": _strings(parsed.get("completed"), 4),
+        "tasks": normalize_tasks(parsed.get("tasks")),
         "blockers": _strings(parsed.get("blockers"), 6),
         "updated_at": _number(parsed.get("updated_at"), 0.0),
         "message_count": int(_number(parsed.get("message_count"), 0)),
@@ -56,7 +59,7 @@ class SessionBriefMixin:
         """
         if not session_id or not isinstance(brief, dict):
             return False
-        payload = json.dumps(brief, ensure_ascii=False)
+        lineage = list(reversed(self._session_lineage_root_to_tip(session_id)))
 
         def _ordering_key(value: Any) -> tuple[float, int]:
             if not isinstance(value, dict):
@@ -84,6 +87,24 @@ class SessionBriefMixin:
                     current = None
                 if _ordering_key(current) > _ordering_key(brief):
                     return 0
+            previous_tasks = []
+            for sid in lineage:
+                prior_row = conn.execute("SELECT brief_json FROM sessions WHERE id = ?", (sid,)).fetchone()
+                if prior_row is None or not prior_row[0]:
+                    continue
+                try:
+                    prior = json.loads(prior_row[0])
+                    if not isinstance(prior, dict):
+                        continue
+                    previous_tasks = normalize_tasks(prior.get("tasks"))
+                except (TypeError, ValueError):
+                    continue
+                break
+            try:
+                merged = dict(brief, tasks=normalize_tasks(brief.get("tasks"), previous_tasks))
+            except ValueError:
+                return 0
+            payload = json.dumps(merged, ensure_ascii=False)
             return conn.execute(
                 "UPDATE sessions SET brief_json = ? WHERE id = ?", (payload, session_id),
             ).rowcount
@@ -104,5 +125,9 @@ class SessionBriefMixin:
                 logger.debug("unparsable brief_json on session %s", sid)
                 continue
             if isinstance(parsed, dict):
-                return _wire_brief(parsed)
+                try:
+                    return _wire_brief(parsed)
+                except ValueError:
+                    logger.debug("invalid task hierarchy on session %s", sid)
+                    continue
         return None

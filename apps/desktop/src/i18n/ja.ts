@@ -3524,6 +3524,19 @@ export const ja = defineLocale({
   },
 
   rightSidebar: {
+    brief: {
+      goal: '現在の目標',
+      tasks: 'タスク',
+      taskStates: {
+        pending: '未着手',
+        in_progress: '進行中',
+        waiting: '待機中',
+        paused: '一時停止',
+        timed_wait: '時間指定の待機',
+        completed: '完了',
+        cancelled: 'キャンセル'
+      }
+    },
     aria: '右サイドバー',
     panelsAria: '右サイドバーパネル',
     files: 'ファイルシステム',

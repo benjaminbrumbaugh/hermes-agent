@@ -5205,7 +5205,16 @@ export const deOverrides = {
     terminal: 'Terminal',
     brief: {
       aria: 'Sitzungs-Kurzfassung',
-      goal: 'Ziel',
+      goal: 'Aktuelles Ziel',
+      taskStates: {
+        pending: 'Ausstehend',
+        in_progress: 'In Bearbeitung',
+        waiting: 'Wartend',
+        paused: 'Pausiert',
+        timed_wait: 'Zeitlich begrenztes Warten',
+        completed: 'Abgeschlossen',
+        cancelled: 'Abgebrochen'
+      },
       status: 'Status',
       tasks: 'Aufgaben',
       completed: 'Bisher erledigt',

@@ -11,6 +11,22 @@ conversations rapid-fire — must answer four questions in about two seconds **w
 Everything else is secondary. A brief that reads well but makes the user misjudge any of the four is a
 failure. Graders cite the brief text and the transcript for every failure they record.
 
+## V3 conversation-task invariants
+
+Current goal must be verb-led and name the current conversation action. Task history is independent
+of the latest-request state: an earlier diagnosis can be completed while its repair parent remains
+paused or active. Completing a child must not imply parent completion. Detours retain/pause prior
+work; resumption reuses IDs. Omissions do not cancel, complete or remove tasks. Only explicit
+time-bound waits use `timed_wait`; ordinary dependency/user waits use `waiting`.
+
+Grade historical paired responses for their own conversation accomplishments, never as proof that
+the current request finished. Legacy feature outcomes cannot be converted into invented tasks.
+Reject hallucinated parents, cycles, duplicate IDs and identity churn. These are `fact.invented`,
+`fact.overclaimed`, or `fresh.no_delta` failures as appropriate. Task details may use up to 240
+characters for necessary resume context; concision is semantic, not a blanket 120-character cap.
+The wire's legacy `completed` list is compatibility data, not the v3 task-history grading surface.
+Historical decision-related rubric IDs below apply only to archived v1 variants.
+
 ## Failure modes
 
 ### State fidelity (the four answers)
@@ -42,7 +58,7 @@ failure. Graders cite the brief text and the transcript for every failure they r
 
 ### Density and scan-ability
 
-- `density.verbose` — any string over ~120 characters, or a status over two sentences, where a shorter form carries the same answer.
+- `density.verbose` — unnecessarily long text where a shorter form carries the same answer; v3 goals allow 140 characters and task details 240 for needed resume context. Status remains a compact state label plus next event.
 - `density.padding` — items that restate each other, or completed items that are sub-steps of another listed item.
 - `density.low_signal_completed` — completed items a returning user would not care about (ran tests, read a file, searched) crowding out outcomes.
 - `density.empty_section_noise` — a section rendered with filler ("none yet", "n/a") rather than omitted.

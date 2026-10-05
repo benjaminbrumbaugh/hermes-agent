@@ -4502,6 +4502,19 @@ export const zh = defineLocale({
   },
 
   rightSidebar: {
+    brief: {
+      goal: '当前目标',
+      tasks: '任务',
+      taskStates: {
+        pending: '待处理',
+        in_progress: '进行中',
+        waiting: '等待中',
+        paused: '已暂停',
+        timed_wait: '定时等待',
+        completed: '已完成',
+        cancelled: '已取消'
+      }
+    },
     aria: '右侧边栏',
     panelsAria: '右侧边栏面板',
     files: '文件系统',
