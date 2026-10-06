@@ -90,6 +90,29 @@ def test_normalize_brief_migrates_v1_rows_without_manufacturing_v3_tasks():
     assert "decisions" not in brief
 
 
+@pytest.mark.parametrize("status, expected", [
+    ("DONE: Session brief updater explained", "Session brief updater explained"),
+    ("WAITING ON YOU: Approve the installer", "Approve the installer"),
+    ("RUNNING: Checking bridge delivery", "Checking bridge delivery"),
+    ("ABANDONED: Bridge work cancelled", "Bridge work cancelled"),
+    ("UNCLEAR: Delivery not yet verified", "Delivery not yet verified"),
+    ("  done:  Session brief updater explained  ", "Session brief updater explained"),
+    ("Session brief updater explained", "Session brief updater explained"),
+    ("Build result: DONE", "Build result: DONE"),
+    ("DONE checklist reviewed", "DONE checklist reviewed"),
+])
+def test_status_uses_plain_text_without_changing_task_state(status, expected):
+    task = {"id": "explain", "parent_id": None, "goal": "Explain the brief updater",
+            "status": "completed", "detail": "Writer process explained"}
+    brief = session_brief.normalize_brief({
+        "goal": task["goal"], "status": status, "tasks": [task],
+        "blockers": ["Approve the installer"],
+    }, message_count=2)
+    assert brief["status"] == expected
+    assert brief["tasks"] == [task]
+    assert brief["blockers"] == ["Approve the installer"]
+
+
 def test_completed_items_require_current_evidence():
     brief = {"completed": ["Ran the focused tests", "Committed 44a9689"]}
     evidence = "The focused tests passed. No commit was made."
