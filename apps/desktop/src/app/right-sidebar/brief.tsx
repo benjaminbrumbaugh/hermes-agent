@@ -185,7 +185,7 @@ function TaskList({ tasks }: { tasks: SessionBriefTask[] }) {
           key={task.id}
           style={{ marginLeft: `${depth * 24}px` }}
         >
-          <div className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-[9px]">
+          <div className="grid grid-cols-[13px_minmax(0,1fr)] items-start gap-[7px]">
             <TaskIcon status={task.status} />
             <div>
               <p className="text-[14px] font-medium leading-[1.45] text-pretty text-(--ui-text-primary)">{task.goal}</p>
@@ -206,7 +206,7 @@ function TaskList({ tasks }: { tasks: SessionBriefTask[] }) {
 
 function TaskIcon({ status }: { status: SessionBriefTask['status'] }) {
   return (
-    <svg aria-hidden="true" className="mt-[3px] size-[15px] text-(--ui-text-secondary)" viewBox="0 0 16 16">
+    <svg aria-hidden="true" className="mt-[4px] size-[13px] text-(--ui-text-secondary)" viewBox="0 0 16 16">
       {status === 'completed' ? (
         <>
           <circle cx="8" cy="8" fill="currentColor" r="8" />
