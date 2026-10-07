@@ -77,6 +77,22 @@ Navigation must preserve context. A background session finishing, a tool result
 arriving, or a project refresh may update badges and cached data; it must not
 replace the foreground transcript or steal focus.
 
+## Conversation brief
+
+The right sidebar separates **Current Goal**, **Needs You**, and longitudinal **Tasks**.
+Needs You contains only an exact human action; ordinary external waits remain task state.
+Dispatch is not delivery when the requested outcome includes implementation or verification:
+a dispatch child can be complete while its parent awaits an external result. An external
+completion report remains waiting if requested verification is outstanding. A dispatch-only
+request can finish at accepted handoff. These judgments belong to the backend brief writer,
+not renderer heuristics or live external-worker polling.
+
+Task markers are static, 13px with a matching grid column, 7px content gap and 4px top inset.
+Active work uses an activity stroke crossing a split circle; waiting uses the dependency/handoff
+arrow; pending and paused use an open circle. Only an explicit timed wait uses a clock.
+Completion uses a filled circle with a check and accessible state text. Preserve 24px task
+indentation and the current-goal typography (14px, weight 560, line-height 1.45).
+
 ## Surfaces & elevation
 
 Floating panels (base `Dialog`, route overlays, boot/install/update surfaces,

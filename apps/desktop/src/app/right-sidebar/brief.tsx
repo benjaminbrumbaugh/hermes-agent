@@ -220,12 +220,31 @@ function TaskIcon({ status }: { status: SessionBriefTask['status'] }) {
           />
         </>
       ) : status === 'in_progress' ? (
+        <>
+          <path
+            d="M1.45 6.6a6.7 6.7 0 0 1 13.1 0M14.55 9.4a6.7 6.7 0 0 1-13.1 0"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeWidth="1.3"
+          />
+          <path
+            d="M.6 8h3.8l1.9-3.5 3.4 7 1.9-3.5h3.8"
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="1.3"
+          />
+        </>
+      ) : status === 'waiting' ? (
         <path
-          d="M8 1.3a6.7 6.7 0 1 1-6.7 6.7"
+          d="M7 2H2v12h5M5 8h9m-3-3 3 3-3 3"
           fill="none"
           stroke="currentColor"
           strokeLinecap="round"
-          strokeWidth="1.7"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
         />
       ) : (
         <>

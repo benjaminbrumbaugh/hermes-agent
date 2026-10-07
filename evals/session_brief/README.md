@@ -20,6 +20,16 @@ states and cycles reject the update without overwriting previous work. Persisten
 atomically against the current lineage brief as well as generation merging its previous context.
 Legacy rows stay readable with `tasks: []`; legacy outcomes never manufacture a task hierarchy.
 
+External handoff is not completion of requested implementation/delivery. Accepted dispatch leaves
+the outcome parent `waiting`; explicit active-worker evidence yields `in_progress`; a completion
+report awaiting required verification remains `waiting`; evidenced requested delivery yields
+`completed`. A distinct handoff child may complete at acceptance without completing its parent.
+For a dispatch-only request, acceptance may complete the requested outcome. External waits do not
+populate user blockers, and an idle tool loop does not prove that external work is finished.
+Evaluate these semantics through real auxiliary generation, persistence and callback readback;
+unit mocks and manually authored rendering fixtures cannot establish model judgment. The brief
+is still a probabilistic, display-only interpretation of evidence, not live worker telemetry.
+
 Production v3 refreshes include up to 12 earlier direct user requests alongside the new-turn delta.
 The first legacy-to-v3 refresh rebuilds from the available transcript; the writer receives only
 bounded evidence: up to 8 paired historical direct requests/assistant final responses, the latest
