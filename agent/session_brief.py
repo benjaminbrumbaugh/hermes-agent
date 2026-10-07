@@ -74,7 +74,7 @@ _SYSTEM_PROMPT = """You maintain a tiny running status brief for a user returnin
 - Name the feature or problem being advanced, not its execution machinery (agents, batches, convoys) unless that machinery is itself the subject. Preserve a defining relationship or direction, such as two-way communication between named systems, when it distinguishes the topic. Name both endpoints of a communication relationship, not just one participant.
 - Resolve follow-ups such as "check in on them", "keep going", "finish it", and "what is left?" against direct user request history and the previous goal. Keep the named subject; never use an unresolved pronoun or a generic activity as the goal. For example, a calendar-sync repair followed by "check on it" becomes "Check calendar sync repair progress", not "Check on it". Do not copy this example unless it is the actual subject.
 - Return new or changed tasks; unchanged tasks may be omitted because the backend retains them. Do not accumulate one task per turn or tool.
-- tasks: longitudinal conversation activities, not external feature milestones, execution todos, turns or tool calls. Keep one salient task per named activity. Reuse stable IDs from the previous tasks, with nullable parent_id. Preserve omitted previous tasks; omission never completes or deletes work. Keep goal verb-led and detail compact observed state or resume context.
+- tasks: longitudinal conversation activities, including unresolved user-requested outcomes handed to external workers, not external feature milestones, execution todos, turns or tool calls. Keep one salient task per named activity. Reuse stable IDs from the previous tasks, with nullable parent_id. Preserve omitted previous tasks; omission never completes or deletes work. Keep goal verb-led and detail compact observed state or resume context.
 - Task states: pending (not started), in_progress (observed active work), waiting (ordinary dependency/user wait), paused (deferred for a detour), timed_wait (explicit time-bound wait only), completed (requested conversation outcome delivered), cancelled (explicitly cancelled). Explicitly update each changed state.
 - Detours pause and preserve the parent; completing a child does not complete its parent. Resume the same parent ID when returning. Never change an existing parent link, duplicate IDs, create cycles or reference a nonexistent parent. Cancelled work stays cancelled unless the user explicitly resumes it.
 - Historical paired assistant responses may establish earlier conversation accomplishments, never the current goal/state or completion of the latest request. Exclude plans and unverified claims; do not translate legacy completed feature outcomes into tasks. New task completion requires an evidenced delivered conversation action, such as an explanation, review, diagnosis or requested implementation.
@@ -95,6 +95,9 @@ Evidence rules:
 - Describe a user wait only when the latest assistant turn explicitly asks the user for an action, choice, confirmation, or approval, and put that exact action in blockers. A question quoted from an earlier turn is not an ask.
 - Describe active work only when the latest assistant turn says work is actively in progress or a background operation is actually pending. A plan, suggestion, or future next step is not running work.
 - If the latest assistant turn says another agent/child/job is `in_progress`, working, or waiting for a result, describe that pending work even when the assistant's own inspection is finished.
+- External handoffs: accepted dispatch is not implementation or delivery. Keep the requested outcome as the parent task; a distinct requested handoff child may be completed at accepted dispatch without completing its parent. If dispatch alone was requested, accepted dispatch may complete that task.
+- For an unresolved handed-off outcome, use waiting after accepted dispatch or while a completion report awaits required verification; use in_progress only with explicit evidence of active worker or verification work; use completed only when the requested outcome and any required verification are evidenced as delivered. Preserve the completed handoff child while updating the parent's outcome state.
+- Waiting for an external worker, report, or verification is not waiting on the user: leave blockers empty unless the latest assistant turn explicitly requires a user action. A completed assistant turn or no pending tool call does not mean no external job is pending.
 - Describe a delivered outcome only when the latest assistant turn explicitly delivered the outcome the controlling user request asked for and does not ask the user for anything, even if it mentions possible future work. A completed investigation or answer counts when that was the request; do not require a code change, merge, install, or reboot unless the user requested it.
 - A completed assistant response is not itself a completed task: judge the controlling request. Conversely, a completed investigation, diagnosis, review, or answer counts when that is what the user requested, even if no files changed.
 - Describe work as left undone only when the latest assistant turn explicitly leaves the controlling request undone. Do not infer abandonment from an old plan, a failed subtask, uncertainty, or a lack of a final answer in an earlier turn. Describe the concrete uncertainty when the latest turn reports investigation, tests, or a partial result but does not establish that the user's requested outcome was delivered.
@@ -186,7 +189,7 @@ def _render_turn_delta(messages: List[Any]) -> str:
         "[AUTHORITATIVE SNAPSHOT ANCHORS — use these to resolve stale context]\n"
         f"[LATEST DIRECT USER TURN]: {latest_user or '[none in this delta]'}\n"
         f"[LATEST ASSISTANT TURN]: {latest_assistant or '[no final assistant text]'}\n"
-        "[SNAPSHOT BOUNDARY]: this brief is refreshed after the assistant turn completed; no tool call is pending at this boundary."
+        "[SNAPSHOT BOUNDARY]: this brief is refreshed after the assistant turn completed; no tool call is pending at this boundary, but an external worker/job or required verification may still be pending."
     )
     return _elide("\n\n".join(parts) + "\n\n" + anchors, _DELTA_CHARS)
 
@@ -252,7 +255,7 @@ def _render_brief_input(messages: List[Any]) -> str:
         ),
         "[LATEST DIRECT USER TURN]: " + latest_user,
         "[LATEST ASSISTANT TURN]: " + latest_assistant,
-        "[SNAPSHOT BOUNDARY]: this brief is refreshed after the assistant turn completed; no tool call is pending at this boundary.",
+        "[SNAPSHOT BOUNDARY]: this brief is refreshed after the assistant turn completed; no tool call is pending at this boundary, but an external worker/job or required verification may still be pending.",
     ]
     return _elide("\n\n".join(section for section in sections if section.split("\n", 1)[-1].strip()), _DELTA_CHARS)
 
