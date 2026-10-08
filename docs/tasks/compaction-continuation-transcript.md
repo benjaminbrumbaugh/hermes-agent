@@ -24,8 +24,31 @@ was the synthetic prefixed content rather than the accepted row.
   indexes do not require a retrospective migration for this replay exclusion.
 
 No schema, provider instruction, alternation policy, real session DB, or client
-renderer changes. No new interruption/resumption labels. No deployment, install,
-restart, push, merge, or updater-owned main checkout edits.
+renderer changes. No new interruption/resumption labels. The source is pushed
+in fork PR #18 targeting `main_plus_our_prs`; no deployment, install, restart,
+or updater-owned main checkout edits have occurred.
+
+## Independent review follow-up
+
+The first exact-byte review blocked merged-carrier handling: requests quoting
+the summary-end or prior-context delimiter could expose synthetic scaffolding.
+An additional regression found repeated compaction truncating requests quoting
+the replay header. Three quoted-token cases failed before this follow-up.
+
+Generated merged replay now records `inflight_replay_start` in existing durable
+display metadata and marks pure carriers `model_only`. Replay extraction uses
+that boundary rather than splitting accepted text at quoted headers. Legacy
+projection recognizes an adjacent generated end/header pair before parsing the
+carrier; only a structurally leading prior-context section supplies visible text.
+Summary classification checks the leading handoff prefix before quoted
+delimiters. This also preserves merged-replay detection after SQLite reopen.
+
+Final follow-up scoped run: **206 passed, 0 failed**, eight files, including four
+new merged-carrier cases through SQLite reopen and another compaction, legacy
+projection, compressor, display parity, resume, and TUI display/status tests.
+`git diff --check` passed. These prove persistence/projection and continuation
+content boundaries, not desktop pixels or live deployment. A second exact-byte
+review is required before integration.
 
 ## Verification receipts
 

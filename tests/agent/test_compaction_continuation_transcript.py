@@ -176,3 +176,36 @@ def test_existing_replay_requires_source_identity_and_never_rewrites_model_histo
             db.close()
         db = SessionDB(path)
     db.close()
+
+
+@pytest.mark.parametrize("quoted", ["ordinary request", _SUMMARY_END_MARKER, _MERGED_SUMMARY_DELIMITER, _INFLIGHT_TASK_REPLAY_HEADER])
+def test_merged_replay_boundary_survives_quoted_control_tokens_and_reopen(tmp_path, quoted):
+    ask = "Explain this literal token: " + quoted + " without changing it."
+    compressor = ContextCompressor(model="test/model", quiet_mode=True)
+    db = SessionDB(tmp_path / "state.db")
+    db.create_session("merged", "desktop")
+    original = {"role": "user", "content": ask, "timestamp": 1.0}
+    _agent(db, "merged")._flush_messages_to_session_db([original])
+    carrier = {"role": "user", "content": SUMMARY_PREFIX + "\nContext\n" + _SUMMARY_END_MARKER,
+               "_compressed_summary": True, "timestamp": 2.0}
+    compressed = compressor._reappend_inflight_user_task([carrier], original)
+    assert project_compaction_message_for_display(compressed[0]) is None
+    assert compressor._has_merged_inflight_replay(compressed[0])
+    legacy = compressed[0].copy()
+    legacy.pop("display_metadata", None)
+    legacy.pop("_compressed_summary", None)
+    assert project_compaction_message_for_display(legacy) is None
+    db.archive_and_compact("merged", compressed)
+    db.close()
+    db = SessionDB(tmp_path / "state.db")
+    try:
+        model = db.get_messages_as_conversation("merged")
+        assert compressor._has_merged_inflight_replay(model[0])
+        assert [row["content"] for row in _visible(db.get_messages("merged", include_compacted=True))] == [ask]
+        newer = {"role": "user", "content": SUMMARY_PREFIX + "\nNew context\n" + _SUMMARY_END_MARKER,
+                 "_compressed_summary": True}
+        repeated = compressor._reappend_inflight_user_task([newer], model[0])
+        assert repeated[0]["content"].endswith(_INFLIGHT_TASK_REPLAY_HEADER + "\n" + ask)
+        assert project_compaction_message_for_display(repeated[0]) is None
+    finally:
+        db.close()

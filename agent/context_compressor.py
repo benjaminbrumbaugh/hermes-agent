@@ -4223,6 +4223,8 @@ Write only the summary body. Do not include any preamble or prefix."""
         Returns ``"standalone"`` (whole message is a handoff), ``"merged"`` (preserved content +
         delimiter + summary body), or None."""
         text = _content_text_for_contains(content).lstrip()
+        if cls._starts_with_summary_prefix(text):
+            return "standalone"
         # Merged summaries carry the handoff prefix after the delimiter; detect it there too.
         if _MERGED_SUMMARY_DELIMITER in text:
             after = text.split(_MERGED_SUMMARY_DELIMITER, 1)[1].lstrip()
@@ -4690,23 +4692,28 @@ Write only the summary body. Do not include any preamble or prefix."""
     def _has_merged_inflight_replay(cls, message: Any) -> bool:
         """Recognize the active request on a handoff, including after DB reload.
 
-        Detection is content-only, anchored on the last summary end marker: the
-        explicit replay after it is authoritative; a request quoted inside the
-        historical summary is not.
+        The durable replay boundary distinguishes generated structure from
+        literal control tokens quoted in accepted user text.
         """
         if not cls._is_context_summary_message(message):
             return False
+        return cls._merged_inflight_task_text(message) is not None
+
+    @staticmethod
+    def _merged_inflight_task_text(message: Dict[str, Any]) -> Optional[str]:
         text = _content_text_for_contains(message.get("content"))
-        # The LAST end marker is the real handoff boundary: a merged-into-tail
-        # carrier can embed an older carrier (marker + replay) in its prior
-        # context, ahead of the new summary's own marker.
-        _, boundary, remainder = text.rpartition(_SUMMARY_END_MARKER)
-        rest = remainder.lstrip()
-        return bool(
-            boundary
-            and rest.startswith(_INFLIGHT_TASK_REPLAY_HEADER)
-            and rest.removeprefix(_INFLIGHT_TASK_REPLAY_HEADER).strip()
-        )
+        start = (message.get("display_metadata") or {}).get("inflight_replay_start")
+        prefix = _INFLIGHT_TASK_REPLAY_HEADER + "\n"
+        if type(start) is int and 0 <= start < len(text) and text.startswith(prefix, start):
+            return text[start + len(prefix):] or None
+        # Legacy carriers lack provenance offsets. Recognize only the adjacent
+        # generated pair, and exclude the prior-tail section from this search.
+        if text.startswith(_MERGED_PRIOR_CONTEXT_HEADER + "\n"):
+            text = text.partition(_MERGED_SUMMARY_DELIMITER)[2]
+        boundary = _SUMMARY_END_MARKER + "\n\n" + prefix
+        if boundary in text:
+            return text.split(boundary, 1)[1] or None
+        return None
 
     @classmethod
     def _find_inflight_user_task(
@@ -4819,12 +4826,11 @@ Write only the summary body. Do not include any preamble or prefix."""
             return compressed
 
         task_text = _content_text_for_contains(inflight.get("content")).strip()
-        if _INFLIGHT_TASK_REPLAY_HEADER in task_text:
-            # Already a restatement from an earlier compaction (standalone row
-            # or merged onto a carrier): take the text after the header so a
-            # task that survives >1 cycle never stacks headers or drags the
-            # old summary along.
-            task_text = task_text.rsplit(_INFLIGHT_TASK_REPLAY_HEADER, 1)[1].strip()
+        if self._has_merged_inflight_replay(inflight):
+            task_text = self._merged_inflight_task_text(inflight)
+        elif (task_text.startswith(_INFLIGHT_TASK_REPLAY_HEADER + "\n")
+              and (inflight.get("display_metadata") or {}).get(MODEL_ONLY_DISPLAY_METADATA_KEY)):
+            task_text = task_text[len(_INFLIGHT_TASK_REPLAY_HEADER) + 1:]
         if not task_text:
             return compressed
 
@@ -4864,10 +4870,16 @@ Write only the summary body. Do not include any preamble or prefix."""
             # header after its end marker lets _has_merged_inflight_replay
             # (used by _ensure_compressed_has_user_turn) see intent as present
             # instead of inserting a second copy of the same request.
+            replay_start = len(carrier_text) + 2
             carrier["content"] = _append_text_to_content(
                 carrier.get("content"),
                 "\n\n" + _INFLIGHT_TASK_REPLAY_HEADER + "\n" + task_text,
             )
+            metadata = dict(carrier.get("display_metadata") or {})
+            metadata["inflight_replay_start"] = replay_start
+            if not carrier_text.startswith(_MERGED_PRIOR_CONTEXT_HEADER + "\n"):
+                metadata[MODEL_ONLY_DISPLAY_METADATA_KEY] = True
+            carrier["display_metadata"] = metadata
             drop_stale_api_content(carrier)
             # The carrier absorbed a durable user turn: record its uid (merge witness).
             from agent.message_metadata import record_absorbed_message

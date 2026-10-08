@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from agent.context_compressor import (
-    ContextCompressor, MODEL_ONLY_DISPLAY_METADATA_KEY, _MERGED_SUMMARY_DELIMITER,
+    ContextCompressor, MODEL_ONLY_DISPLAY_METADATA_KEY, _MERGED_PRIOR_CONTEXT_HEADER,
     _content_text_for_contains, is_compaction_summary_message,
 )
 
@@ -48,13 +48,13 @@ def project_compaction_message_for_display(message: Dict[str, Any]) -> Optional[
     if not is_compaction_summary_message(message):
         return message.copy()
 
+    # Legacy merged replay must also be hidden before parsing user-quoted
+    # delimiter tokens. Only a leading prior-tail section owns visible text.
+    if (ContextCompressor._has_merged_inflight_replay(message)
+            and not _content_text_for_contains(message.get("content")).startswith(_MERGED_PRIOR_CONTEXT_HEADER + "\n")):
+        return None
     projected = ContextCompressor._strip_context_summary_handoff_message(message)
     if projected is None:
-        return None
-    # A replay merged after the handoff end marker is model continuation,
-    # not a user-authored suffix. Retain genuine prior-tail content, if any.
-    if (ContextCompressor._has_merged_inflight_replay(message)
-            and _MERGED_SUMMARY_DELIMITER not in _content_text_for_contains(message.get("content"))):
         return None
 
     projected = projected.copy()
