@@ -4875,6 +4875,11 @@ Write only the summary body. Do not include any preamble or prefix."""
             record_absorbed_message(carrier, inflight)
             return compressed
 
+        # This is continuation scaffolding, not another accepted user turn.
+        # Keep the exact model content durable while the archived source owns display.
+        replay["display_metadata"] = {
+            **(replay.get("display_metadata") or {}), MODEL_ONLY_DISPLAY_METADATA_KEY: True,
+        }
         compressed.append(replay)
         return compressed
 

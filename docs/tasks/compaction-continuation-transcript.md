@@ -1,0 +1,88 @@
+# Compaction continuation transcript boundary
+
+Base: `main_plus_our_prs` at `19fa9136909f3b428d975516685e1c1dbc22dd0f`.
+Branch: `fix/compaction-continuation-transcript`.
+
+## Root cause and fix
+
+`ContextCompressor._reappend_inflight_user_task` clones the accepted request and
+adds `_INFLIGHT_TASK_REPLAY_HEADER` for model continuation after the handoff.
+The copy retains the accepted UID/timestamp, so display identity correctly folds
+its generations at the original position, but the active/newest representative
+was the synthetic prefixed content rather than the accepted row.
+
+- Mark standalone continuations with the existing durable `model_only` display
+  admission flag. Preserve the full continuation in model history and SQLite.
+- Exclude pure summary-carrier continuation from the shared display projection;
+  preserve genuine prior-tail text, even when it quotes the exact replay header.
+- Centralize display admission in `hermes_state_display.py`. Existing unmarked
+  standalone replays require an earlier same-session UID/timestamp source witness
+  plus the exact generated leading prefix. Handle text and multipart first text
+  parts. Do not infer identity from equal text or delete/rewrite historical rows.
+- Apply admission before indexed history/timeline grouping and pagination, and
+  in streaming legacy-page/resume deduplication. Already-materialized display
+  indexes do not require a retrospective migration for this replay exclusion.
+
+No schema, provider instruction, alternation policy, real session DB, or client
+renderer changes. No new interruption/resumption labels. No deployment, install,
+restart, push, merge, or updater-owned main checkout edits.
+
+## Verification receipts
+
+Runner: `scripts/run_tests.sh`, existing checkout `.venv/bin/python` selected with
+`HERMES_PYTHON`; `HERMES_TEST_FILE_RETRIES=0` throughout. Disposable SQLite stores
+and isolated homes only. Stub only `_call_summary_llm` on the compressor class:
+compression operates on a working copy, so an instance transport patch alone is
+not sufficient to prove successful summary transport was exercised. The test
+asserts the transport was called.
+
+- RED on untouched base: all four new parametrized cases fail. Initial RED also
+  demonstrated the accepted UID/timestamp displaying the generated prefix.
+- GREEN final focused run: **291 passed, 0 failed**, 16 files, 24.2 seconds.
+  Includes the four new cases, existing real image-history/repeated-compaction
+  reproduction, compressor, split-turn/restart, in-place persistence, display
+  parity/index/legacy paging, timeline jumps, watermark fencing, and compaction
+  status suites.
+- New regression: normal flush → real compactor assembly → fenced compaction
+  persistence → SQLite reopen → model/display resume → indexed and read-only
+  legacy paging. Repeated compaction of the same task, a later independently
+  accepted identical request, text parts and images, and untouched sibling
+  session are covered. Existing replay projection reads leave audit rows intact;
+  model continuation still reaches Codex Responses serialization after the
+  handoff and internal display metadata does not reach the provider.
+- Broad state run: **1,384 passed, 63 failed, 49 skipped**, 146 files. All 63
+  failing node IDs also fail on untouched base; comparison found zero newly
+  failing node IDs. Base additionally fails all four new cases. Two no-test
+  files are unchanged blockers: missing `aiohttp` for API projection tests and
+  retired `macos_only`/`linux_only` markers in WAL capture tests.
+- Broad agent/compaction/TUI run: **985 passed, 4 failed**, 102 files. All four
+  failures reproduced on base: three `/var/tmp` versus `/private/var/tmp` prompt
+  snapshot assumptions and missing `acp` for one manual-preview case.
+- Broad state failures include host maintenance/holder tests refused by the live
+  home I/O guard and host WAL assumptions; no guard was disabled and no global
+  dependencies were installed to make them green.
+
+Full receipts are in `/Users/benjaminbrumbaugh/.hermes/cache/scratch/`:
+`compaction-continuation-red.log`, `compaction-continuation-base.log`,
+`compaction-continuation-focused-final.log`,
+`compaction-continuation-regression.log`,
+`compaction-continuation-agent-regression.log`, and
+`compaction-continuation-base-agent-failures.log`.
+
+## Outstanding delivery/UI verification
+
+This source-only work does not update the running backend. After separately
+approved delivery, verify on an isolated UI session:
+
+1. Original accepted bubble is unchanged at its original chronological position
+   through automatic mid-turn compaction and subsequent history reload/resume.
+2. Model continues the same unfinished task after the compaction handoff; repeat
+   compaction, accept identical text again, and verify those are distinct turns.
+3. Text/media rendering, timeline jumps, and older/newer pages agree; a sibling
+   session is unchanged. Known historical source-witnessed replay rows project
+   cleanly without database edits. No-UID/no-source historical rows are left as-is.
+4. Existing compaction/context-rebuild status is visible as appropriate; neither
+   `Interrupted` nor `Resumed` is emitted merely because compaction occurred.
+
+Live desktop/browser visual verification and the aiohttp endpoint suite remain
+outstanding. Parent owns independent review and any later remote delivery.
