@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from agent.context_compressor import ContextCompressor, is_compaction_summary_message
+from agent.context_compressor import (
+    ContextCompressor, MODEL_ONLY_DISPLAY_METADATA_KEY, _MERGED_PRIOR_CONTEXT_HEADER,
+    _INFLIGHT_TASK_REPLAY_HEADER, _SUMMARY_END_MARKER,
+    _content_text_for_contains, is_compaction_summary_message,
+)
 
 
 _COMPACTION_INTERNAL_FIELDS = (
@@ -40,9 +44,20 @@ def project_compaction_message_for_display(message: Dict[str, Any]) -> Optional[
     """
     if not isinstance(message, dict):
         return None
+    if (message.get("display_metadata") or {}).get(MODEL_ONLY_DISPLAY_METADATA_KEY):
+        return None
     if not is_compaction_summary_message(message):
         return message.copy()
 
+    # Legacy merged replay must also be hidden before parsing user-quoted
+    # delimiter tokens. Only a leading prior-tail section owns visible text.
+    text = _content_text_for_contains(message.get("content"))
+    legacy_replay_boundary = _SUMMARY_END_MARKER + "\n\n" + _INFLIGHT_TASK_REPLAY_HEADER + "\n"
+    # Display-only recognition cannot grant execution authority. It can hide a
+    # pure historical carrier even when quoted tokens defeat legacy activation.
+    if ((ContextCompressor._has_merged_inflight_replay(message) or legacy_replay_boundary in text)
+            and not text.startswith(_MERGED_PRIOR_CONTEXT_HEADER + "\n")):
+        return None
     projected = ContextCompressor._strip_context_summary_handoff_message(message)
     if projected is None:
         return None

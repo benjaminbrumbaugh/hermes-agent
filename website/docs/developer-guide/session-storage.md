@@ -76,7 +76,38 @@ archive rows as duplicates. Diagnose duplicate *live* writes using `active=1`,
 and check the database's profile as well as the session ID when investigating
 history that appears to revert.
 
+### In-flight continuation is model context, not a human turn
 
+When a long unfinished turn is split, the compressor restates its request after
+`_SUMMARY_END_MARKER` so the model can continue the same work. The generated
+`[STILL IN PROGRESS ...]` instruction is not accepted user input. Standalone
+restatements carry the existing `display_metadata.model_only` admission flag:
+normal flush and compaction persist their full model content, while canonical
+history, resume display, paging, and prompt-index projections omit them. The
+archived accepted row retains its content, timestamp, UID, and chronological
+position. The model projection keeps the continuation after the handoff through
+SQLite reopen and repeated compaction; transports omit internal metadata.
+
+If alternation requires merging the restatement onto a summary carrier, the
+shared compaction display projection omits that synthetic suffix, but preserves
+genuine prior-tail content. Compaction is neither interruption nor resumption;
+this boundary introduces no `Interrupted` / `Resumed` transcript labels.
+
+Existing standalone replays without the admission flag can be omitted read-only
+when an earlier visible user row in the same session has the same durable UID
+and accepted timestamp. The exact generated leading prefix is required (including
+the dedicated first text part of a multipart replay). Content equality alone,
+a prefix quoted inside user text, another session, or independently accepted
+identical text is not a source witness. Stores without the UID/source evidence
+are left unchanged rather than guessing. `hermes_state_display.py` owns this
+admission policy for indexed history, legacy paging, resume, and timeline reads;
+it does not alter the model projection or write a retrospective migration.
+
+Delivery and UI verification are separate: source changes do not update a running
+backend. Verify the accepted bubble stays at its original chronological location,
+with unchanged text/media, after automatic mid-turn compaction and after reload;
+verify the next model request still contains the continuation after the handoff,
+and no false interruption/resumption labels appear. No live database edit is needed.
 
 ## Codex app-server input ownership
 

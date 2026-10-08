@@ -22,6 +22,7 @@ from hermes_cli.timefmt import coerce_epoch
 from hermes_state_common import (
     _COMPRESSION_LOCK_ROW_SQL, _ENDED_ROW_SQL, _RESET_END_REASONS, _RESET_END_REASONS_SQL, _ended_by_compression,
     _json_or, _legacy_reset_child_sql, _placeholders, _sql_json_extract)
+from hermes_state_display import display_visible_sql, witnessed_legacy_replay
 from hermes_state_identity import (
     _absorbed_uids_json, _restore_identity_columns, _tool_call_uid_map, _tool_call_uid_or_none, _tool_call_uids_json)
 
@@ -52,10 +53,6 @@ _BUMP_GENERATION_SQL = """
 _TURN_LEASE_ROW_SQL = "SELECT holder, expires_at FROM session_turn_leases WHERE conversation_id = ?"
 _DELETE_COMPRESSION_LOCK_SQL = "DELETE FROM compression_locks WHERE session_id = ? AND holder = ?"
 _DISPLAY_ACTIVE_CLAUSE = " AND (active = 1 OR compacted = 1)"
-# Model-only rows (see MODEL_ONLY_DISPLAY_METADATA_KEY) never enter a display projection. Unqualified on
-# purpose: inside a correlated subquery it binds to the innermost ``messages`` alias.
-DISPLAY_VISIBLE_SQL = (
-    f" AND COALESCE({_sql_json_extract('display_metadata', '$.' + MODEL_ONLY_DISPLAY_METADATA_KEY)}, 0) = 0")
 _DISPLAY_META_ROW_SQL = "SELECT display_metadata FROM messages WHERE id = ? AND session_id IN ({ids})" + _DISPLAY_ACTIVE_CLAUSE
 # A display row is indexed only when both halves are set; the read path backfills before projecting, so
 # the in-transaction delete fence must refuse (not project) any session this probe still matches.
@@ -1250,7 +1247,7 @@ class SessionMessagesMixin:
                 row["tool_call_id"], row["tool_calls"], row["tool_name"])
 
     def _is_model_only_row(self, row) -> bool:
-        """Python twin of :data:`DISPLAY_VISIBLE_SQL`."""
+        """Explicit durable model-only admission flag."""
         return bool((self._decode_display_metadata(row["display_metadata"]) or {}).get(MODEL_ONLY_DISPLAY_METADATA_KEY))
 
     @staticmethod
@@ -1274,8 +1271,9 @@ class SessionMessagesMixin:
         seen: Dict[bytes, Any] = {}
         first_id: Dict[bytes, int] = {}
         identity_by_uid: Dict[str, bytes] = {}
+        replay_sources = set()
         for row in rows:
-            if self._is_model_only_row(row):
+            if self._is_model_only_row(row) or witnessed_legacy_replay(self, row, replay_sources):
                 continue
             key = self._display_identity(
                 self._display_dedupe_key(row),
@@ -1349,6 +1347,7 @@ class SessionMessagesMixin:
         """Project a legacy read-only display page without retaining transcript payloads."""
         representatives: Dict[bytes, Tuple[int, int]] = {}
         identity_by_uid: Dict[str, bytes] = {}
+        replay_sources = set()
         with self._read_ctx() as conn:
             conn.execute("BEGIN")
             try:
@@ -1364,7 +1363,7 @@ class SessionMessagesMixin:
                     f"WHERE session_id = ?{active_clause} ORDER BY id ASC",
                     (session_id,))
                 for row in rows:
-                    if self._is_model_only_row(row):
+                    if self._is_model_only_row(row) or witnessed_legacy_replay(self, row, replay_sources):
                         continue
                     identity = self._display_identity(
                         self._display_dedupe_key(row), uid=row["message_uid"], by_uid=identity_by_uid)
@@ -1418,10 +1417,11 @@ class SessionMessagesMixin:
                                 offset: int = 0, latest: bool = False):
         """One display-history projection for normal reads and transactional verification."""
         direction = "DESC" if latest else "ASC"
+        has_uid = "message_uid" in {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
         return conn.execute(
             f"""WITH page AS (
                    SELECT display_order FROM messages
-                   WHERE session_id = ? AND (active = 1 OR compacted = 1){DISPLAY_VISIBLE_SQL}
+                   WHERE session_id = ? AND (active = 1 OR compacted = 1){display_visible_sql(has_uid=has_uid)}
                    GROUP BY display_order ORDER BY display_order {direction}
                    LIMIT ? OFFSET ?
                )
@@ -1430,7 +1430,7 @@ class SessionMessagesMixin:
                    SELECT candidate.id FROM messages AS candidate
                    WHERE candidate.session_id = ?
                      AND candidate.display_order = page.display_order
-                     AND (candidate.active = 1 OR candidate.compacted = 1){DISPLAY_VISIBLE_SQL}
+                     AND (candidate.active = 1 OR candidate.compacted = 1){display_visible_sql('candidate', has_uid=has_uid)}
                    ORDER BY candidate.active DESC, candidate.id DESC LIMIT 1
                )
                ORDER BY page.display_order ASC""",
