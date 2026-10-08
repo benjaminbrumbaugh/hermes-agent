@@ -221,15 +221,16 @@ function TaskIcon({ status }: { status: SessionBriefTask['status'] }) {
         </>
       ) : status === 'in_progress' ? (
         <>
-          <path
-            d="M1.45 6.6a6.7 6.7 0 0 1 13.1 0M14.55 9.4a6.7 6.7 0 0 1-13.1 0"
+          <circle
+            cx="8"
+            cy="8"
             fill="none"
+            r="6.7"
             stroke="currentColor"
-            strokeLinecap="round"
             strokeWidth="1.3"
           />
           <path
-            d="M.6 8h3.8l1.9-3.5 3.4 7 1.9-3.5h3.8"
+            d="M4.3 8h7.4M8.6 4.9 11.7 8l-3.1 3.1"
             fill="none"
             stroke="currentColor"
             strokeLinecap="round"
