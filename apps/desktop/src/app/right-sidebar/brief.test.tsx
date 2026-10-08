@@ -95,9 +95,11 @@ describe('conversation brief rendering', () => {
     expect(rows[2].querySelector('.sr-only')?.textContent).toContain('Completed')
     expect(rows[2].textContent).not.toContain('Done')
     expect(rows[2].querySelector('svg circle')?.getAttribute('fill')).toBe('currentColor')
-    // The active marker combines a split ring with the activity stroke; not a spinner.
-    expect(rows[3].querySelectorAll('svg path')).toHaveLength(2)
-    expect(Array.from(rows[3].querySelectorAll('svg path')).every(path => path.getAttribute('fill') === 'none')).toBe(true)
+    // The approved active marker is a static right arrow inside an unfilled circle.
+    expect(rows[3].querySelector('svg circle')?.getAttribute('fill')).toBe('none')
+    expect(rows[3].querySelectorAll('svg path')).toHaveLength(1)
+    expect(rows[3].querySelector('svg path')?.getAttribute('fill')).toBe('none')
+    expect(rows[3].querySelector('svg path')?.getAttribute('d')).toBe('M4.3 8h7.4M8.6 4.9 11.7 8l-3.1 3.1')
     // Waiting has its own dependency/handoff marker, distinct from not-started and timed waits.
     expect(rows[1].querySelector('svg circle')).toBeNull()
     expect(rows[1].querySelectorAll('svg path')).toHaveLength(1)
