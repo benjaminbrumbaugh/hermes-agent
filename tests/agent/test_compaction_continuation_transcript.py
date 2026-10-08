@@ -209,3 +209,16 @@ def test_merged_replay_boundary_survives_quoted_control_tokens_and_reopen(tmp_pa
         assert project_compaction_message_for_display(repeated[0]) is None
     finally:
         db.close()
+
+
+def test_historical_replay_quoted_inside_summary_does_not_activate_completed_task():
+    historical = (SUMMARY_PREFIX + "\nOld historical context\n" + _SUMMARY_END_MARKER
+                  + "\n\n" + _INFLIGHT_TASK_REPLAY_HEADER + "\nCompleted historical request")
+    newer = {"role": "user", "content": SUMMARY_PREFIX + "\nHistorical carrier quoted for reference:\n"
+             + historical + "\nEnd historical quote.\n" + _SUMMARY_END_MARKER}
+    compressor = ContextCompressor(model="test/model", quiet_mode=True)
+    assert not compressor._has_merged_inflight_replay(newer)
+    inflight = compressor._find_inflight_user_task([newer])
+    assert inflight is None
+    fresh = {"role": "user", "content": SUMMARY_PREFIX + "\nFresh context\n" + _SUMMARY_END_MARKER}
+    assert compressor._reappend_inflight_user_task([fresh], inflight) == [fresh]

@@ -50,6 +50,20 @@ projection, compressor, display parity, resume, and TUI display/status tests.
 content boundaries, not desktop pixels or live deployment. A second exact-byte
 review is required before integration.
 
+The second review caught a new stale historical-carrier activation caused by
+the permissive legacy adjacent-pair fallback. A regression reproduced that
+completed work quoted inside a newer summary became an in-flight request.
+The execution fallback has been simplified back to the preexisting conservative
+final-end-marker rule. Adjacent-pair recognition is now display-only and cannot
+grant execution authority; newly generated replay continues to use durable
+boundary offsets. No new migration or recovery machinery was added.
+
+Latest final-byte scoped run: **207 passed, 0 failed**, eight files, including
+the historical-only summary regression (RED before this change), all quoted-token
+cases, and existing compressor/display/resume/status coverage. Whitespace check
+passed. Independent exact-byte approval remains required before integration;
+the live app remains untouched.
+
 ## Verification receipts
 
 Runner: `scripts/run_tests.sh`, existing checkout `.venv/bin/python` selected with

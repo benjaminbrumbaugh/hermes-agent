@@ -4706,13 +4706,13 @@ Write only the summary body. Do not include any preamble or prefix."""
         prefix = _INFLIGHT_TASK_REPLAY_HEADER + "\n"
         if type(start) is int and 0 <= start < len(text) and text.startswith(prefix, start):
             return text[start + len(prefix):] or None
-        # Legacy carriers lack provenance offsets. Recognize only the adjacent
-        # generated pair, and exclude the prior-tail section from this search.
-        if text.startswith(_MERGED_PRIOR_CONTEXT_HEADER + "\n"):
-            text = text.partition(_MERGED_SUMMARY_DELIMITER)[2]
-        boundary = _SUMMARY_END_MARKER + "\n\n" + prefix
-        if boundary in text:
-            return text.split(boundary, 1)[1] or None
+        # Preserve the conservative legacy execution rule: only replay after
+        # the final handoff end can activate work. Historical quoted carriers
+        # inside a newer summary must not become live requests.
+        _, boundary, remainder = text.rpartition(_SUMMARY_END_MARKER)
+        rest = remainder.lstrip()
+        if boundary and rest.startswith(prefix):
+            return rest[len(prefix):] or None
         return None
 
     @classmethod
