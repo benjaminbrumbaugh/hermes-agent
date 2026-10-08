@@ -88,7 +88,7 @@ request can finish at accepted handoff. These judgments belong to the backend br
 not renderer heuristics or live external-worker polling.
 
 Task markers are static, 13px with a matching grid column, 7px content gap and 4px top inset.
-Active work uses an activity stroke crossing a split circle; waiting uses the dependency/handoff
+Active work uses a right arrow inside an unfilled circle; waiting uses the dependency/handoff
 arrow; pending and paused use an open circle. Only an explicit timed wait uses a clock.
 Completion uses a filled circle with a check and accessible state text. Preserve 24px task
 indentation and the current-goal typography (14px, weight 560, line-height 1.45).
