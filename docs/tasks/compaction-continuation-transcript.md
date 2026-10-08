@@ -3,6 +3,19 @@
 Base: `main_plus_our_prs` at `19fa9136909f3b428d975516685e1c1dbc22dd0f`.
 Branch: `fix/compaction-continuation-transcript`.
 
+## Final source acceptance
+
+Independent exact-byte review **approved** implementation commit
+`b814eb5dce30fd4aea08066de246544de00d4ddb`, with no blocking findings.
+Parent scoped verification: **209 passed, 0 failed**, eight files. Independent
+verification: **161 passed** in continuation/image-history/compressor suites and
+**28 passed** in display-parity/resume suites; full-range whitespace check passed.
+Earlier pending-review statements below are historical intermediate receipts.
+PR #18 delivers this source to `main_plus_our_prs`; merged-state and post-merge
+verification receipts are recorded in that PR. Desktop-pixel verification,
+live backend rollout, and installation/relaunch remain separate unperformed
+boundaries. No live session database edits are required or authorized.
+
 ## Root cause and fix
 
 `ContextCompressor._reappend_inflight_user_task` clones the accepted request and
