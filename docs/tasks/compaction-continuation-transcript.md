@@ -64,6 +64,20 @@ cases, and existing compressor/display/resume/status coverage. Whitespace check
 passed. Independent exact-byte approval remains required before integration;
 the live app remains untouched.
 
+The third review found absolute offsets were incorrect for multipart carriers:
+flattening text parts inserts a separator newline. The descriptor is now the
+trailing generated replay's text length (`inflight_replay_text_length`), replacing
+the unshipped absolute-offset field. Its boundary does not depend on preceding
+text-part separators or historical image-to-placeholder rewrites. This is a
+direct representation replacement, not additional fallback/migration machinery.
+Added real prior-tail merge cases for string and text/image content, preserving
+authentic display content/media, rewriting historical media with the production
+helper, reopening SQLite, and replaying the unchanged ask on another compaction.
+The multipart case failed on the prior commit before this change.
+Final representation-replacement run: **209 passed, 0 failed**, eight files;
+`git diff --check` passed. This proves source/persistence/display projection and
+continued task extraction, not live desktop pixels or deployment.
+
 ## Verification receipts
 
 Runner: `scripts/run_tests.sh`, existing checkout `.venv/bin/python` selected with

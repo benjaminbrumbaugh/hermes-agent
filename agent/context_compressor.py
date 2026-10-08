@@ -4702,10 +4702,12 @@ Write only the summary body. Do not include any preamble or prefix."""
     @staticmethod
     def _merged_inflight_task_text(message: Dict[str, Any]) -> Optional[str]:
         text = _content_text_for_contains(message.get("content"))
-        start = (message.get("display_metadata") or {}).get("inflight_replay_start")
+        replay_length = (message.get("display_metadata") or {}).get("inflight_replay_text_length")
         prefix = _INFLIGHT_TASK_REPLAY_HEADER + "\n"
-        if type(start) is int and 0 <= start < len(text) and text.startswith(prefix, start):
-            return text[start + len(prefix):] or None
+        if type(replay_length) is int and len(prefix) < replay_length <= len(text):
+            start = len(text) - replay_length
+            if text.startswith(prefix, start):
+                return text[start + len(prefix):] or None
         # Preserve the conservative legacy execution rule: only replay after
         # the final handoff end can activate work. Historical quoted carriers
         # inside a newer summary must not become live requests.
@@ -4870,13 +4872,14 @@ Write only the summary body. Do not include any preamble or prefix."""
             # header after its end marker lets _has_merged_inflight_replay
             # (used by _ensure_compressed_has_user_turn) see intent as present
             # instead of inserting a second copy of the same request.
-            replay_start = len(carrier_text) + 2
             carrier["content"] = _append_text_to_content(
                 carrier.get("content"),
                 "\n\n" + _INFLIGHT_TASK_REPLAY_HEADER + "\n" + task_text,
             )
             metadata = dict(carrier.get("display_metadata") or {})
-            metadata["inflight_replay_start"] = replay_start
+            # A trailing span works for string and multipart carriers, and
+            # remains valid when earlier historical media is replaced by text.
+            metadata["inflight_replay_text_length"] = len(_INFLIGHT_TASK_REPLAY_HEADER + "\n" + task_text)
             if not carrier_text.startswith(_MERGED_PRIOR_CONTEXT_HEADER + "\n"):
                 metadata[MODEL_ONLY_DISPLAY_METADATA_KEY] = True
             carrier["display_metadata"] = metadata

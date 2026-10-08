@@ -6,7 +6,7 @@ import pytest
 
 from agent.codex_responses_adapter import _chat_messages_to_responses_input
 from agent.compaction_display import project_compaction_message_for_display
-from agent.context_compressor import ContextCompressor, SUMMARY_PREFIX, _INFLIGHT_TASK_REPLAY_HEADER, _SUMMARY_END_MARKER, _MERGED_PRIOR_CONTEXT_HEADER, _MERGED_SUMMARY_DELIMITER
+from agent.context_compressor import ContextCompressor, SUMMARY_PREFIX, _INFLIGHT_TASK_REPLAY_HEADER, _SUMMARY_END_MARKER, _MERGED_PRIOR_CONTEXT_HEADER, _MERGED_SUMMARY_DELIMITER, _content_text_for_contains, _strip_historical_media
 from agent.conversation_compression import compress_context
 from hermes_state import SessionDB
 from hermes_state_timeline import get_session_timeline, get_session_messages_around
@@ -222,3 +222,38 @@ def test_historical_replay_quoted_inside_summary_does_not_activate_completed_tas
     assert inflight is None
     fresh = {"role": "user", "content": SUMMARY_PREFIX + "\nFresh context\n" + _SUMMARY_END_MARKER}
     assert compressor._reappend_inflight_user_task([fresh], inflight) == [fresh]
+
+
+@pytest.mark.parametrize("multipart", [False, True])
+def test_prior_tail_replay_survives_reopen_and_media_rewrite(tmp_path, multipart):
+    compressor = ContextCompressor(model="test/model", quiet_mode=True)
+    ask = "Explain the literal " + _SUMMARY_END_MARKER + " in this file."
+    image = {"type": "image_url", "image_url": {"url": IMAGE}}
+    content = [{"type": "text", "text": "Authentic earlier request"}, image] if multipart else "Authentic earlier request"
+    carrier = {"role": "user", "content": content}
+    compressor._merge_summary_into_tail_row(carrier, SUMMARY_PREFIX + "\nNew context", "user", False)
+    compressor._reappend_inflight_user_task([carrier], {"role": "user", "content": ask})
+    assert compressor._has_merged_inflight_replay(carrier)
+    projected = project_compaction_message_for_display(carrier)
+    assert projected is not None
+    assert _content_text_for_contains(projected["content"]) == "Authentic earlier request"
+    if multipart:
+        assert image in projected["content"]
+        # Real finalization can replace older media before the replay boundary.
+        carrier = _strip_historical_media([carrier, {"role": "user", "content": [image]}])[0]
+        assert image not in carrier["content"]
+        assert compressor._has_merged_inflight_replay(carrier)
+    db = SessionDB(tmp_path / "state.db")
+    db.create_session("prior-tail", "desktop")
+    db.archive_and_compact("prior-tail", [carrier])
+    db.close()
+    db = SessionDB(tmp_path / "state.db")
+    try:
+        model = db.get_messages_as_conversation("prior-tail")
+        inflight = compressor._find_inflight_user_task(model)
+        assert inflight is not None
+        fresh = {"role": "user", "content": SUMMARY_PREFIX + "\nFresh context\n" + _SUMMARY_END_MARKER}
+        repeated = compressor._reappend_inflight_user_task([fresh], inflight)
+        assert repeated[0]["content"].endswith(_INFLIGHT_TASK_REPLAY_HEADER + "\n" + ask)
+    finally:
+        db.close()
