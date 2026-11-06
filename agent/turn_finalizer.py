@@ -638,10 +638,13 @@ def finalize_turn(
 
     _guarded_cleanup("persist_session", _persist_step, _cleanup_errors, logger)
 
-    # The turn is durable: refresh the human-facing session brief off-path (own thread, aux model).
-    if not interrupted and not failed and final_response:
-        from agent.session_brief import maybe_update_brief
-        _guarded_cleanup("session_brief", lambda: maybe_update_brief(agent, messages), _cleanup_errors, logger)
+    # Stops are evidence too, even without final text. This sidecar never resumes work.
+    from agent.session_brief import maybe_update_brief
+    _guarded_cleanup(
+        "session_brief", lambda: maybe_update_brief(agent, messages, current_turn_input=original_user_message, turn_outcome={
+            "interrupted": bool(interrupted), "failed": bool(failed), "reason": str(_turn_exit_reason),
+        }), _cleanup_errors, logger,
+    )
 
     # After the turn is durable, as its own guarded step: a summarizer failure never costs the reply.
     if not interrupted and not failed and final_response:
