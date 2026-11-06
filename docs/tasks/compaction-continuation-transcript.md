@@ -11,10 +11,25 @@ Parent scoped verification: **209 passed, 0 failed**, eight files. Independent
 verification: **161 passed** in continuation/image-history/compressor suites and
 **28 passed** in display-parity/resume suites; full-range whitespace check passed.
 Earlier pending-review statements below are historical intermediate receipts.
-PR #18 delivers this source to `main_plus_our_prs`; merged-state and post-merge
-verification receipts are recorded in that PR. Desktop-pixel verification,
-live backend rollout, and installation/relaunch remain separate unperformed
-boundaries. No live session database edits are required or authorized.
+PR #18 merged this source to `main_plus_our_prs` at
+`e307830a123cbc82dfcd95fd79f01ccb4de04d71`; merged-state and post-merge
+verification receipts are recorded in that PR. Desktop-pixel and endpoint
+acceptance remain separate from source delivery. No live session database edits
+are required or authorized.
+
+### Installation reconciliation (November 5, 2026)
+
+The November 4 review read the installed Hermes bundle stamp: it declares
+`e307830a123cbc82dfcd95fd79f01ccb4de04d71`, built October 9, 2026. This supersedes
+the original source handoff's installation-pending assumption; reinstall/restart
+is not the default next step. A bundle stamp proves declared artifact identity,
+not running-backend identity, endpoint behavior or desktop pixels.
+
+Keep the existing acceptance checklist below and outstanding aiohttp endpoint
+suite. Confirm the test instance's source identity, then exercise those checks
+in isolation; do not expand to an exhaustive matrix or rewrite accepted source
+without a reproduced gap. This documentation update performs no install,
+restart, live acceptance or session-database change.
 
 ## Root cause and fix
 
@@ -37,9 +52,10 @@ was the synthetic prefixed content rather than the accepted row.
   indexes do not require a retrospective migration for this replay exclusion.
 
 No schema, provider instruction, alternation policy, real session DB, or client
-renderer changes. No new interruption/resumption labels. The source is pushed
-in fork PR #18 targeting `main_plus_our_prs`; no deployment, install, restart,
-or updater-owned main checkout edits have occurred.
+renderer changes. No new interruption/resumption labels. The source-delivery
+work in fork PR #18 itself performed no deployment, install, restart or
+updater-owned main checkout edits; the later installation observation is recorded
+above and does not certify runtime behavior.
 
 ## Independent review follow-up
 
@@ -135,8 +151,10 @@ Full receipts are in `/Users/benjaminbrumbaugh/.hermes/cache/scratch/`:
 
 ## Outstanding delivery/UI verification
 
-This source-only work does not update the running backend. After separately
-approved delivery, verify on an isolated UI session:
+This source-only work did not update the running backend. After confirming the
+test instance runs the accepted source, verify the existing checklist on an
+isolated UI session. Any genuinely necessary disruptive delivery remains a
+separate operational step, not an assumed prerequisite:
 
 1. Original accepted bubble is unchanged at its original chronological position
    through automatic mid-turn compaction and subsequent history reload/resume.
